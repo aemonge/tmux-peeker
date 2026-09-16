@@ -222,6 +222,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modeList
 		return m, loadSessions
 
+	case windowRenamedMsg:
+		m.mode = modeList
+		return m, loadWindows(msg.sessionName)
+
 	case filterAppliedMsg:
 		m.mode = modeList
 		m.filterText = msg.text
@@ -341,10 +345,17 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.moveWindowMod = newMoveWindowModel(it.session, it.window, m.sessions)
 		}
 	case m.keyMap.Matches(contextList, "rename", pressed):
-		if it := m.currentItem(); it != nil && it.kind == itemSession {
-			m.mode = modeRename
-			m.renameModel = newRenameModel(it.session.Name)
-			return m, m.renameModel.input.Focus()
+		if it := m.currentItem(); it != nil {
+			switch it.kind {
+			case itemSession:
+				m.mode = modeRename
+				m.renameModel = newSessionRenameModel(it.session.Name)
+				return m, m.renameModel.input.Focus()
+			case itemWindow:
+				m.mode = modeRename
+				m.renameModel = newWindowRenameModel(it.session.Name, it.window.Index, it.window.Name)
+				return m, m.renameModel.input.Focus()
+			}
 		}
 	case m.keyMap.Matches(contextList, "filter", pressed):
 		m.returnToSessionLevel()

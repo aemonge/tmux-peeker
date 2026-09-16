@@ -67,7 +67,7 @@ Use `j`/`k` or the arrow keys to move, `Enter` or `Backspace` to attach, and `q`
 | Drill into session or window | `l`, `→`, `Tab` |
 | Return to parent | `h`, `←`, `Shift+Tab` |
 | Attach selected target | `Enter`, `Backspace` |
-| Create / rename / kill | `n` / `r` / `x` |
+| Create / rename / kill (session or window) | `n` / `r` / `x` |
 | Move selected window | `m` |
 | Filter / clear filter | `/` / `Esc` |
 | Help | `?` |

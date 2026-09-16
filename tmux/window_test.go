@@ -219,6 +219,18 @@ func TestMoveWindowDoesNotBlockFinalSourceWindow(t *testing.T) {
 	})
 }
 
+func TestRenameWindowRunsRenameWindowCommand(t *testing.T) {
+	withMock(t, func(m *mockRunner) {
+		if err := RenameWindow("dev", 2, "watch"); err != nil {
+			t.Fatalf("RenameWindow() error = %v", err)
+		}
+		want := "tmux rename-window -t dev:2 watch"
+		if len(m.runs) != 1 || m.runs[0] != want {
+			t.Errorf("run calls = %q, want [%q]", m.runs, want)
+		}
+	})
+}
+
 func TestListWindowsEmpty(t *testing.T) {
 	withMock(t, func(m *mockRunner) {
 		m.OnOutput([]byte(""), nil, "tmux", "list-windows", "-t", "empty", "-F", windowListFormat)

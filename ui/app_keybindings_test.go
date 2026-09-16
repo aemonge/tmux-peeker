@@ -92,7 +92,7 @@ func TestConfiguredModalBindingsDriveEveryMode(t *testing.T) {
 	t.Run("rename cancel", func(t *testing.T) {
 		m := NewModelWithKeyMap(keyMap)
 		m.mode = modeRename
-		m.renameModel = newRenameModel("old")
+		m.renameModel = newSessionRenameModel("old")
 		m = updateModel(t, m, runeKey("b"))
 		if m.mode != modeList {
 			t.Fatalf("custom rename cancel mode = %v, want modeList", m.mode)
@@ -244,7 +244,7 @@ func TestRenderedHelpAndPromptsUseConfiguredBindings(t *testing.T) {
 		}
 	}
 	assertContainsAll(t, newCreateModel().View(keyMap), "ctrl+s", "ctrl+x")
-	assertContainsAll(t, newRenameModel("old").View(keyMap), "ctrl+s", "ctrl+x")
+	assertContainsAll(t, newSessionRenameModel("old").View(keyMap), "ctrl+s", "ctrl+x")
 	assertContainsAll(t, newFilterModel("").View(keyMap), "ctrl+s", "ctrl+x")
 	assertContainsAll(t, newConfirmKillModel("old").View(keyMap), "enter", "esc")
 }
@@ -273,6 +273,68 @@ func mustKeyMap(t *testing.T, overrides map[string]map[string][]string) KeyMap {
 
 func runeKey(value string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(value)}
+}
+
+func TestRenameKeyContextualByRowKind(t *testing.T) {
+	t.Run("window row opens window rename", func(t *testing.T) {
+		m := modelWithSelectedWindow()
+		m = updateModel(t, m, runeKey("r"))
+		if m.mode != modeRename {
+			t.Fatalf("rename on window mode = %v, want modeRename", m.mode)
+		}
+		if m.renameModel.target.session != "source" || m.renameModel.target.window != 1 {
+			t.Fatalf("rename target = %+v, want source:1", m.renameModel.target)
+		}
+		if m.renameModel.oldName != "editor" {
+			t.Fatalf("rename oldName = %q, want editor", m.renameModel.oldName)
+		}
+		if view := m.renameModel.View(m.keyMap); !strings.Contains(view, "Rename Window") {
+			t.Fatalf("rename view missing window label:\n%s", view)
+		}
+	})
+
+	t.Run("session row keeps session rename", func(t *testing.T) {
+		m := modelWithSelectedWindow()
+		m.cursor = 0
+		m = updateModel(t, m, runeKey("r"))
+		if m.mode != modeRename {
+			t.Fatalf("rename on session mode = %v, want modeRename", m.mode)
+		}
+		if m.renameModel.target.window != -1 {
+			t.Fatalf("rename target window = %d, want -1", m.renameModel.target.window)
+		}
+	})
+
+	t.Run("pane row stays a no-op", func(t *testing.T) {
+		m := NewModel()
+		m.sessions = []tmux.Session{{Name: "source"}}
+		m.tree.setSessionExpanded("source", true)
+		m.tree.windowsCache["source"] = []tmux.Window{{Index: 0, Name: "shell"}}
+		m.tree.setWindowExpanded("source", 0, true)
+		m.tree.panesCache[paneCacheKey{session: "source", window: 0}] = []tmux.Pane{{Index: 0, Command: "zsh"}}
+		m.applyFilter()
+		m.cursor = 2
+		m = updateModel(t, m, runeKey("r"))
+		if m.mode != modeList {
+			t.Fatalf("rename on pane mode = %v, want modeList", m.mode)
+		}
+	})
+
+	t.Run("window rename message refreshes windows", func(t *testing.T) {
+		m := modelWithSelectedWindow()
+		m.mode = modeRename
+		next, cmd := m.Update(windowRenamedMsg{sessionName: "source", windowIndex: 1})
+		got, ok := next.(Model)
+		if !ok {
+			t.Fatalf("Update() model type = %T, want ui.Model", next)
+		}
+		if got.mode != modeList {
+			t.Fatalf("after windowRenamedMsg mode = %v, want modeList", got.mode)
+		}
+		if cmd == nil {
+			t.Fatal("windowRenamedMsg returned nil cmd, want loadWindows")
+		}
+	})
 }
 
 func updateModel(t *testing.T, model Model, msg tea.Msg) Model {

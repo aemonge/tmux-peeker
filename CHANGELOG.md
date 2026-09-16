@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Window renaming from the tree: `r` on a window row renames that window in place, with the same overlay as session rename.
 - Built-in `default` and `solarized-gruvbox` color themes, selectable by CLI flag, `TMUX_PEEKER_THEME`, or XDG configuration.
 - Configurable, context-aware TUI keybindings with conflict validation and an on-demand `?` help card.
 - Fullscreen live-preview task switcher with a one-row contextual session/window/pane title, compact centered selector, and bottom-left preview framing across every remaining row.

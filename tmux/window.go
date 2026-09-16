@@ -52,6 +52,16 @@ func MoveWindow(sourceSession string, windowIndex int, destinationSession string
 	return nil
 }
 
+// RenameWindow renames the window at the given index in the given session.
+// A manual rename makes tmux disable automatic-rename for that window.
+func RenameWindow(sessionName string, windowIndex int, newName string) error {
+	target := fmt.Sprintf("%s:%d", sessionName, windowIndex)
+	if err := runner.Run("tmux", "rename-window", "-t", target, newName); err != nil {
+		return fmt.Errorf("rename window %s: %w", target, err)
+	}
+	return nil
+}
+
 // ListPanes returns all panes in the given window, sorted by index.
 // windowIndex is the tmux window index (as reported by ListWindows).
 func ListPanes(sessionName string, windowIndex int) ([]Pane, error) {
