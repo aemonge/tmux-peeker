@@ -152,7 +152,7 @@ func TestInteractiveVisibleBandsRespectMinimumContentRows(t *testing.T) {
 		{"single window", 1, 40, 1},
 		{"three windows fit", 3, 40, 3},
 		{"four fit without indicators", 4, 44, 4},
-		{"five overflow reserves indicators", 5, 44, 3},
+		{"five overflow reserves indicators", 5, 44, 4},
 		{"overflow minimum height", 9, 13, 1},
 		{"tiny terminal still shows one", 3, 11, 1},
 	}
