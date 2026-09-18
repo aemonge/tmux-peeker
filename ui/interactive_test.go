@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/aemonge/tmux-peeker/tmux"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func interactiveTestModel() Model {
@@ -249,4 +252,123 @@ func tenPlusWindows(count int) []tmux.Window {
 func isQuit(msg tea.Msg) bool {
 	_, ok := msg.(tea.QuitMsg)
 	return ok
+}
+
+func stripLines(rendered string) []string {
+	lines := strings.Split(ansi.Strip(rendered), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(line, " ")
+	}
+	return lines
+}
+
+func TestRenderInteractiveEqualBands(t *testing.T) {
+	m := enterInteractive(t, interactiveTestModel())
+	m.height = 40
+	rendered := m.viewInteractive()
+
+	lines := strings.Split(rendered, "\n")
+	if len(lines) != 40 {
+		t.Fatalf("rendered lines = %d, want 40", len(lines))
+	}
+	plain := stripLines(rendered)
+	// 40 rows over 3 bands: 14 + 13 + 13, headers at band starts.
+	for _, want := range []struct {
+		line int
+		text string
+	}{
+		{0, "▸ peeking work:0 editor — nvim"},
+		{14, "▷ peeking work:1 server — go run"},
+		{27, "▷ peeking work:2 logs — tail"},
+	} {
+		if got := plain[want.line]; !strings.HasPrefix(got, want.text) {
+			t.Errorf("line %d = %q, want prefix %q", want.line, got, want.text)
+		}
+	}
+	for _, filler := range []int{13, 26, 39} {
+		if plain[filler] != "" {
+			t.Errorf("content line %d = %q, want blank filler", filler, plain[filler])
+		}
+	}
+}
+
+func TestRenderInteractiveIndicatorsFrameOverflow(t *testing.T) {
+	m := enterInteractive(t, interactiveTestModel())
+	m.height = 40
+	m.interactiveMod.setWindows(tenPlusWindows(12), 40)
+
+	rendered := m.viewInteractive()
+	if len(strings.Split(rendered, "\n")) != 40 {
+		t.Fatalf("rendered lines = %d, want 40", len(strings.Split(rendered, "\n")))
+	}
+	plain := stripLines(rendered)
+	if got := plain[0]; got != "" {
+		t.Errorf("top indicator at offset 0 = %q, want spacer", got)
+	}
+	if got := plain[39]; !strings.Contains(got, "↓ 9 windows below") {
+		t.Errorf("bottom indicator = %q, want ↓ 9 windows below", got)
+	}
+
+	m.interactiveMod.cursor = 11
+	m.interactiveMod.ensureCursorVisible(40)
+	plain = stripLines(m.viewInteractive())
+	if got := plain[0]; !strings.Contains(got, "↑ 9 windows above") {
+		t.Errorf("top indicator = %q, want ↑ 9 windows above", got)
+	}
+	if got := plain[39]; got != "" {
+		t.Errorf("bottom indicator at last = %q, want spacer", got)
+	}
+	if got := plain[1]; !strings.HasPrefix(got, "▷ peeking work:9 win") {
+		t.Errorf("first band header = %q, want window 9", got)
+	}
+	if got := plain[27]; !strings.HasPrefix(got, "▸ peeking work:11 win") {
+		t.Errorf("selected band header = %q, want window 11", got)
+	}
+}
+
+func TestRenderInteractiveBottomCropsContent(t *testing.T) {
+	m := enterInteractive(t, interactiveTestModel())
+	m.height = 36 // 3 bands of 12 rows each
+	capture := make([]string, 20)
+	for i := range capture {
+		capture[i] = fmt.Sprintf("line-%02d", i)
+	}
+	m.interactiveMod.captures[1] = strings.Join(capture, "\n")
+
+	plain := stripLines(m.viewInteractive())
+	// Band 1 starts at row 12 (header), content rows 13..23 hold the tail of
+	// the 20-line capture: lines 09..19.
+	if got := plain[13]; got != "line-09" {
+		t.Errorf("first content row = %q, want line-09", got)
+	}
+	if got := plain[23]; got != "line-19" {
+		t.Errorf("last content row = %q, want line-19", got)
+	}
+}
+
+func TestRenderInteractiveEveryLineMatchesWidth(t *testing.T) {
+	m := enterInteractive(t, interactiveTestModel())
+	m.width, m.height = 80, 40
+	m.interactiveMod.setWindows(tenPlusWindows(12), 40)
+	m.interactiveMod.cursor = 5
+	m.interactiveMod.ensureCursorVisible(40)
+
+	rendered := m.viewInteractive()
+	for i, line := range strings.Split(rendered, "\n") {
+		if got := ansi.StringWidth(line); got != 80 {
+			t.Errorf("line %d width = %d, want 80", i, got)
+		}
+	}
+}
+
+func TestInteractiveViewTooSmallFallsBackToError(t *testing.T) {
+	m := enterInteractive(t, interactiveTestModel())
+	m.width, m.height = 80, 10
+	rendered := m.viewInteractive()
+	if !strings.Contains(ansi.Strip(rendered), "Terminal too small") {
+		t.Fatalf("small terminal fallback missing message:\n%s", rendered)
+	}
+	if len(strings.Split(rendered, "\n")) != 10 {
+		t.Fatal("small terminal fallback does not fill exactly 10 rows")
+	}
 }

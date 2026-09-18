@@ -1,8 +1,12 @@
 package ui
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/aemonge/tmux-peeker/tmux"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 const (
@@ -139,4 +143,132 @@ func (im *interactiveModel) visibleWindow() *tmux.Window {
 		return nil
 	}
 	return &im.windows[im.cursor]
+}
+
+// interactiveMinimumHeight is the smallest terminal height that can show one
+// band (header plus minimum content rows).
+const interactiveMinimumHeight = interactiveHeaderRows + interactiveMinContentRows
+
+// interactiveLayout describes how the interactive view divides the screen.
+// When windows overflow, two stable indicator rows frame the bands so band
+// heights never jump while scrolling.
+type interactiveLayout struct {
+	visible     int
+	bandRows    []int // total rows per visible band (header + content)
+	hiddenAbove int
+	hiddenBelow int
+	overflow    bool
+}
+
+func computeInteractiveLayout(windowCount, offset, height int) interactiveLayout {
+	visible := interactiveVisibleBands(windowCount, height)
+	if visible <= 0 {
+		return interactiveLayout{}
+	}
+	layout := interactiveLayout{visible: visible, overflow: windowCount > visible}
+	available := height
+	if layout.overflow {
+		available -= 2
+		layout.hiddenAbove = offset
+		layout.hiddenBelow = windowCount - offset - visible
+	}
+	base := available / visible
+	leftover := available % visible
+	layout.bandRows = make([]int, visible)
+	for i := range layout.bandRows {
+		layout.bandRows[i] = base
+		if i < leftover {
+			layout.bandRows[i]++
+		}
+	}
+	return layout
+}
+
+// renderInteractiveView paints the fullscreen multi-window view: one header
+// plus bottom-cropped live content per visible window band, framed by dim
+// overflow indicators when windows do not all fit.
+func renderInteractiveView(m *Model) string {
+	im := &m.interactiveMod
+	if !im.loaded {
+		return interactiveNotice("Loading…", m.width, m.height)
+	}
+	if len(im.windows) == 0 {
+		return interactiveNotice("No windows in this session", m.width, m.height)
+	}
+	layout := computeInteractiveLayout(len(im.windows), im.offset, m.height)
+	if layout.visible == 0 {
+		return interactiveNotice("Terminal too small for the interactive view", m.width, m.height)
+	}
+
+	lines := make([]string, 0, m.height)
+	if layout.overflow {
+		lines = append(lines, interactiveIndicatorRow(layout.hiddenAbove, "above", m.width))
+	}
+	for i := 0; i < layout.visible; i++ {
+		window := im.windows[im.offset+i]
+		selected := im.offset+i == im.cursor
+		lines = append(lines, interactiveHeaderRow(im.session, window, selected, m.width))
+		content := im.captures[window.Index]
+		lines = append(lines, strings.Split(renderPreview(content, m.width, layout.bandRows[i]-interactiveHeaderRows), "\n")...)
+	}
+	if layout.overflow {
+		lines = append(lines, interactiveIndicatorRow(layout.hiddenBelow, "below", m.width))
+	}
+	return fixedBox(strings.Join(lines, "\n"), m.width, m.height)
+}
+
+// interactiveHeaderRow renders one band header: a fancy peek prefix, the
+// session:window target, and the active command.
+func interactiveHeaderRow(session string, w tmux.Window, selected bool, width int) string {
+	marker := "▷"
+	if selected {
+		marker = "▸"
+	}
+	text := fmt.Sprintf("%s peeking %s:%d %s", marker, session, w.Index, w.Name)
+	if w.ActiveCommand != "" {
+		text += " — " + w.ActiveCommand
+	}
+	row := padOrTruncate(text, width)
+	if selected {
+		return lipgloss.NewStyle().
+			Bold(true).
+			Foreground(colorCursor).
+			Background(colorSelected).
+			Render(row)
+	}
+	return lipgloss.NewStyle().
+		Foreground(colorMuted).
+		Background(colorSurface).
+		Render(row)
+}
+
+// interactiveIndicatorRow renders a dim overflow indicator; a count of zero
+// keeps the row as a quiet spacer so band heights stay stable.
+func interactiveIndicatorRow(count int, direction string, width int) string {
+	if count > 0 {
+		plural := "s"
+		if count == 1 {
+			plural = ""
+		}
+		arrow := "↑"
+		if direction == "below" {
+			arrow = "↓"
+		}
+		text := fmt.Sprintf("%s %d window%s %s", arrow, count, plural, direction)
+		return lipgloss.NewStyle().
+			Foreground(colorMuted).
+			Background(colorSurface).
+			Render(truncateAndCenter(text, width))
+	}
+	return surfaceSpaces(width)
+}
+
+// interactiveNotice fills the screen with a single centered dim message.
+func interactiveNotice(message string, width, height int) string {
+	lines := make([]string, height)
+	for i := range lines {
+		lines[i] = strings.Repeat(" ", width)
+	}
+	lines[height/2] = padOrTruncate(centerText(message, width), width)
+	return strings.Join(lines, "\n")
 }

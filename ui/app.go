@@ -647,6 +647,8 @@ func (m Model) View() string {
 		view = m.viewWithOverlay(m.confirmKillMod.View(m.keyMap))
 	case modeMoveWindow:
 		view = m.viewWithOverlay(m.moveWindowMod.View(m.keyMap))
+	case modeInteractive:
+		view = m.viewInteractive()
 	default:
 		view = m.viewMain()
 	}
@@ -689,6 +691,17 @@ func (m Model) viewWithOverlay(content string) string {
 		return background
 	}
 	return overlayCentered(background, renderModal(content), m.width, m.height)
+}
+
+// viewInteractive renders the fullscreen multi-window session view.
+func (m Model) viewInteractive() string {
+	if m.width == 0 {
+		return "Loading..."
+	}
+	if m.height < interactiveMinimumHeight || m.width < 20 {
+		return fixedBox(errorStyle.Render("Terminal too small for the interactive view"), m.width, m.height)
+	}
+	return renderInteractiveView(&m)
 }
 
 // AttachName returns the session name to attach to (if any) after the TUI
