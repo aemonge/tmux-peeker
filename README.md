@@ -13,7 +13,7 @@
 A session name is rarely enough when several terminals look alike. tmux-peeker keeps the selected target's live output behind a compact picker, so you can recognize the workspace before switching.
 
 - **Live previews** — see the selected session, window, or pane, refreshed every 500 ms
-- **Interactive window grid** — press `i` to fill the screen with a session's windows as equal live bands, then jump to one
+- **Interactive window grid** — press `i` to fill the screen with a session's windows as equal live bands on a fast ~200 ms refresh; the selected band is accent-framed and `Enter` jumps to it
 - **Hierarchy-aware navigation** — drill from sessions into windows and panes
 - **Fast switching** — jump to the exact highlighted target with one key
 - **MRU ordering** — move between recent workspaces like an operating-system switcher
