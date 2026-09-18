@@ -309,6 +309,7 @@ func renderSwitcherHelp(keyMap KeyMap, terminalWidth, terminalHeight int) string
 		{keyMap.Help(contextList, "first") + " / " + keyMap.Help(contextList, "last"), "first / last"},
 		{keyMap.Help(contextList, "expand") + " / " + keyMap.Help(contextList, "collapse"), "enter / back"},
 		{keyMap.Help(contextList, "attach"), "attach selected target"},
+		{keyMap.Help(contextList, "interactive"), "live window grid"},
 		{keyMap.Help(contextList, "create") + " / " + keyMap.Help(contextList, "rename") + " / " + keyMap.Help(contextList, "kill"), "new / rename / kill"},
 		{keyMap.Help(contextList, "move_window"), "move selected window"},
 		{keyMap.Help(contextList, "filter"), "filter sessions"},

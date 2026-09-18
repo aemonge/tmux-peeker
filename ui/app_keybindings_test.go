@@ -252,8 +252,8 @@ func TestRenderedHelpAndPromptsUseConfiguredBindings(t *testing.T) {
 func TestRenderSwitcherHelpIsACompactCard(t *testing.T) {
 	const width, height = 160, 30
 	rows := strings.Split(ansi.Strip(renderSwitcherHelp(DefaultKeyMap(), width, height)), "\n")
-	if len(rows) != 11 {
-		t.Fatalf("help rows = %d, want 9 entries plus borders", len(rows))
+	if len(rows) != 12 {
+		t.Fatalf("help rows = %d, want 10 entries plus borders", len(rows))
 	}
 	for i, row := range rows {
 		if got := ansi.StringWidth(row); got != switcherWidth(width) {

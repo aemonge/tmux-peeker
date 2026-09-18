@@ -21,6 +21,7 @@ func TestDefaultKeyMapContainsEveryTmuxPeekerAction(t *testing.T) {
 			"expand":       {"tab", "right", "l"},
 			"collapse":     {"shift+tab", "left", "h"},
 			"attach":       {"enter", "backspace"},
+			"interactive":  {"i"},
 			"help":         {"?"},
 			"create":       {"n"},
 			"kill":         {"x"},

@@ -130,11 +130,11 @@ func TestSelectorAndHelpCardsApplyExpectedBackgroundToEveryCell(t *testing.T) {
 		},
 		{
 			name: "help", rendered: renderSwitcherHelp(populated.keyMap, populated.width, populated.height),
-			background: []rgb{surface}, width: switcherWidth(populated.width), height: 11,
+			background: []rgb{surface}, width: switcherWidth(populated.width), height: 12,
 		},
 		{
 			name: "narrow help", rendered: renderSwitcherHelp(populated.keyMap, 76, populated.height),
-			background: []rgb{surface}, width: switcherWidth(76), height: 11,
+			background: []rgb{surface}, width: switcherWidth(76), height: 12,
 		},
 		{name: "session row", rendered: formatSessionRow(populated.sessions[1], false, false, 48), background: []rgb{surface}, width: 48, height: 1},
 		{name: "window row", rendered: formatWindowRow(&window, false, false, 48), background: []rgb{surface}, width: 48, height: 1},
