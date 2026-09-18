@@ -218,7 +218,8 @@ func renderInteractiveView(m *Model) string {
 }
 
 // interactiveHeaderRow renders one band header: a fancy peek prefix, the
-// session:window target, and the active command.
+// session:window target, and the active command. Every header shares the
+// same quiet muted style; the ▸/▷ marker is the only selection cue.
 func interactiveHeaderRow(session string, w tmux.Window, selected bool, width int) string {
 	marker := "▷"
 	if selected {
@@ -229,13 +230,6 @@ func interactiveHeaderRow(session string, w tmux.Window, selected bool, width in
 		text += " — " + w.ActiveCommand
 	}
 	row := padOrTruncate(text, width)
-	if selected {
-		return lipgloss.NewStyle().
-			Bold(true).
-			Foreground(colorCursor).
-			Background(colorSelected).
-			Render(row)
-	}
 	return lipgloss.NewStyle().
 		Foreground(colorMuted).
 		Background(colorSurface).

@@ -396,6 +396,28 @@ func TestInteractiveResizeReclampsBandOffset(t *testing.T) {
 	}
 }
 
+func TestInteractiveSelectedHeaderStaysQuiet(t *testing.T) {
+	useSolarizedTrueColor(t)
+	window := tmux.Window{Index: 2, Name: "logs", ActiveCommand: "tail"}
+	selected := interactiveHeaderRow("work", window, true, 48)
+	idle := interactiveHeaderRow("work", window, false, 48)
+
+	// Selection must not restyle the header: both rows carry the quiet
+	// surface background, and only the marker glyph differs.
+	surface := rgb{r: 251, g: 241, b: 199}
+	assertEveryVisibleCellUsesBackground(t, selected, surface)
+	assertEveryVisibleCellUsesBackground(t, idle, surface)
+
+	selPlain := strings.TrimSpace(ansi.Strip(selected))
+	idlePlain := strings.TrimSpace(ansi.Strip(idle))
+	if !strings.HasPrefix(selPlain, "▸") {
+		t.Errorf("selected header = %q, want ▸ marker", selPlain)
+	}
+	if !strings.HasPrefix(idlePlain, "▷") {
+		t.Errorf("idle header = %q, want ▷ marker", idlePlain)
+	}
+}
+
 // stubTmuxRunner fakes tmux for ui-level tests; every Output call returns a
 // single stub line.
 type stubTmuxRunner struct{}
