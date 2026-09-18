@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -370,5 +371,69 @@ func TestInteractiveViewTooSmallFallsBackToError(t *testing.T) {
 	}
 	if len(strings.Split(rendered, "\n")) != 10 {
 		t.Fatal("small terminal fallback does not fill exactly 10 rows")
+	}
+}
+
+// stubTmuxRunner fakes tmux for ui-level tests; every Output call returns a
+// single stub line.
+type stubTmuxRunner struct{}
+
+func (stubTmuxRunner) Output(name string, args ...string) ([]byte, error) {
+	return []byte("stub\n"), nil
+}
+
+func (stubTmuxRunner) Run(name string, args ...string) error { return nil }
+
+// execTmuxRunner mirrors tmux's real runner so tests restore it faithfully.
+type execTmuxRunner struct{}
+
+func (execTmuxRunner) Output(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).Output()
+}
+
+func (execTmuxRunner) Run(name string, args ...string) error {
+	return exec.Command(name, args...).Run()
+}
+
+func TestInteractiveTickRefreshesWindowsAndVisibleCaptures(t *testing.T) {
+	tmux.SetRunner(stubTmuxRunner{})
+	defer tmux.SetRunner(execTmuxRunner{})
+
+	m := enterInteractive(t, interactiveTestModel())
+	_, cmd := m.Update(tickMsg{})
+	if cmd == nil {
+		t.Fatal("tick returned nil cmd")
+	}
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("tick cmd produced %T, want tea.BatchMsg", cmd())
+	}
+
+	captured := map[int]bool{}
+	sawWindowsLoad := false
+	for _, c := range batch {
+		switch value := c().(type) {
+		case interactiveCaptureMsg:
+			if value.session != "work" {
+				t.Errorf("capture session = %q, want work", value.session)
+			}
+			captured[value.window] = true
+		case windowsLoadedMsg:
+			sawWindowsLoad = true
+			if value.sessionName != "work" {
+				t.Errorf("windows load session = %q, want work", value.sessionName)
+			}
+		}
+	}
+	if !sawWindowsLoad {
+		t.Error("tick batch did not refresh the window list")
+	}
+	for _, want := range []int{0, 1, 2} {
+		if !captured[want] {
+			t.Errorf("tick batch did not capture visible window %d", want)
+		}
+	}
+	if len(captured) != 3 {
+		t.Errorf("captured windows = %v, want exactly the 3 visible bands", captured)
 	}
 }

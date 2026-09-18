@@ -149,6 +149,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		cmds := []tea.Cmd{loadSessions, tick()}
+		if m.mode == modeInteractive {
+			// Keep the band set and live captures fresh; skip picker-only work.
+			cmds = append(cmds, loadWindows(m.interactiveMod.session))
+			cmds = append(cmds, m.interactiveMod.captureCmds(m.height)...)
+			return m, tea.Batch(cmds...)
+		}
 		if it := m.currentItem(); it != nil {
 			cmds = append(cmds, refreshPreview(previewKeyForItem(*it)))
 		}
