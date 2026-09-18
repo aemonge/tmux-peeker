@@ -53,6 +53,14 @@ func TestDefaultKeyMapContainsEveryTmuxPeekerAction(t *testing.T) {
 			"confirm": {"enter"},
 			"cancel":  {"esc"},
 		},
+		"interactive": {
+			"up":     {"up", "k"},
+			"down":   {"down", "j"},
+			"first":  {"g"},
+			"last":   {"G"},
+			"attach": {"enter"},
+			"exit":   {"i", "esc", "q"},
+		},
 	}
 
 	got := DefaultKeyMap()

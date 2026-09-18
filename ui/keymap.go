@@ -7,13 +7,14 @@ import (
 )
 
 const (
-	contextGlobal = "global"
-	contextList   = "list"
-	contextCreate = "create"
-	contextRename = "rename"
-	contextFilter = "filter"
-	contextKill   = "kill"
-	contextMove   = "move"
+	contextGlobal      = "global"
+	contextList        = "list"
+	contextCreate      = "create"
+	contextRename      = "rename"
+	contextFilter      = "filter"
+	contextKill        = "kill"
+	contextMove        = "move"
+	contextInteractive = "interactive"
 )
 
 var contextOrder = []string{
@@ -23,6 +24,7 @@ var contextOrder = []string{
 	contextFilter,
 	contextKill,
 	contextMove,
+	contextInteractive,
 }
 
 var defaultBindings = map[string]map[string][]string{
@@ -68,6 +70,14 @@ var defaultBindings = map[string]map[string][]string{
 		"down":    {"down", "j"},
 		"confirm": {"enter"},
 		"cancel":  {"esc"},
+	},
+	contextInteractive: {
+		"up":     {"up", "k"},
+		"down":   {"down", "j"},
+		"first":  {"g"},
+		"last":   {"G"},
+		"attach": {"enter"},
+		"exit":   {"i", "esc", "q"},
 	},
 }
 

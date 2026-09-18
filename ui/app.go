@@ -33,6 +33,7 @@ const (
 	modeFilter
 	modeConfirmKill
 	modeMoveWindow
+	modeInteractive
 )
 
 // Model is the top-level Bubble Tea model for the session manager TUI.
@@ -54,6 +55,7 @@ type Model struct {
 	filterMod      filterModel
 	confirmKillMod confirmKillModel
 	moveWindowMod  moveWindowModel
+	interactiveMod interactiveModel
 	filterText     string
 	attachTarget   previewKey // set when we want to attach after quitting (zero value = no attach)
 	focusSession   string     // session name to focus cursor on after next load
@@ -168,6 +170,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sessions = msg.sessions
 			m.tree.pruneCaches(m.sessions)
 			m.applyFilter()
+			if m.mode == modeInteractive && !m.sessionExists(m.interactiveMod.session) {
+				m.mode = modeList
+			}
 			if m.focusSession != "" {
 				for i, it := range m.items {
 					if it.kind == itemSession && it.session.Name == m.focusSession {
@@ -193,6 +198,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tree.windowsCache[msg.sessionName] = msg.windows
 		m.rebuildItems()
 		m.restoreIdentity(selected)
+		if m.mode == modeInteractive && m.interactiveMod.session == msg.sessionName {
+			m.interactiveMod.setWindows(msg.windows, m.height)
+			return m, m.refreshInteractiveCaptures()
+		}
 		if m.finishPendingDrill(itemWindow, msg.sessionName, 0) {
 			return m, m.refreshCurrentPreview()
 		}
@@ -211,6 +220,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case previewLoadedMsg:
 		m.previewKey = msg.key
 		m.previewContent = msg.content
+		return m, nil
+
+	case interactiveCaptureMsg:
+		if m.mode == modeInteractive && msg.session == m.interactiveMod.session {
+			if m.interactiveMod.captures == nil {
+				m.interactiveMod.captures = make(map[int]string)
+			}
+			m.interactiveMod.captures[msg.window] = msg.content
+		}
 		return m, nil
 
 	case sessionCreatedMsg:
@@ -281,6 +299,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateConfirmKill(msg)
 	case modeMoveWindow:
 		return m.updateMoveWindow(msg)
+	case modeInteractive:
+		return m.updateInteractive(msg)
 	default:
 		return m.updateList(msg)
 	}
@@ -329,6 +349,15 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if it := m.currentItem(); it != nil {
 			m.attachTarget = previewKeyForItem(*it)
 			return m, tea.Quit
+		}
+	case m.keyMap.Matches(contextList, "interactive", pressed):
+		if it := m.currentItem(); it != nil {
+			m.mode = modeInteractive
+			m.interactiveMod = newInteractiveModel(it.session.Name)
+			if cached, ok := m.tree.windowsCache[it.session.Name]; ok {
+				m.interactiveMod.setWindows(cached, m.height)
+			}
+			return m, tea.Batch(loadWindows(it.session.Name), m.refreshInteractiveCaptures())
 		}
 	case m.keyMap.Matches(contextList, "create", pressed):
 		m.mode = modeCreate
@@ -499,6 +528,57 @@ func (m Model) updateMoveWindow(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.moveWindowMod, cmd = m.moveWindowMod.Update(msg, m.keyMap)
 	return m, cmd
+}
+
+// updateInteractive handles keys for the fullscreen multi-window view.
+func (m Model) updateInteractive(msg tea.Msg) (tea.Model, tea.Cmd) {
+	key, ok := msg.(tea.KeyMsg)
+	if !ok {
+		return m, nil
+	}
+	switch pressed := key.String(); {
+	case m.keyMap.Matches(contextInteractive, "exit", pressed):
+		m.mode = modeList
+		return m, nil
+	case m.keyMap.Matches(contextInteractive, "attach", pressed):
+		if w := m.interactiveMod.visibleWindow(); w != nil {
+			m.attachTarget = previewKey{session: m.interactiveMod.session, window: w.Index, pane: -1}
+			return m, tea.Quit
+		}
+		return m, nil
+	case m.keyMap.Matches(contextInteractive, "up", pressed):
+		m.interactiveMod.move(-1, m.height)
+	case m.keyMap.Matches(contextInteractive, "down", pressed):
+		m.interactiveMod.move(1, m.height)
+	case m.keyMap.Matches(contextInteractive, "first", pressed):
+		m.interactiveMod.first()
+	case m.keyMap.Matches(contextInteractive, "last", pressed):
+		m.interactiveMod.last(m.height)
+	default:
+		return m, nil
+	}
+	return m, m.refreshInteractiveCaptures()
+}
+
+// sessionExists reports whether the named session is present in the last
+// loaded session list.
+func (m *Model) sessionExists(name string) bool {
+	for _, s := range m.sessions {
+		if s.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// refreshInteractiveCaptures returns a batched capture command for the
+// interactive view's currently visible bands, or nil when nothing applies.
+func (m *Model) refreshInteractiveCaptures() tea.Cmd {
+	cmds := m.interactiveMod.captureCmds(m.height)
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) currentItem() *listItem {
