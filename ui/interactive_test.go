@@ -131,6 +131,22 @@ func TestInteractiveNavigationMovesCursor(t *testing.T) {
 	}
 }
 
+func TestInteractiveNavigationCyclesAtTheEdges(t *testing.T) {
+	m := enterInteractive(t, interactiveTestModel())
+	m.interactiveMod.setWindows(tenPlusWindows(12))
+	m.interactiveMod.cursor = 11
+
+	m = updateModel(t, m, runeKey("j"))
+	if m.interactiveMod.cursor != 0 {
+		t.Fatalf("j at last cursor = %d, want 0 (cycled)", m.interactiveMod.cursor)
+	}
+
+	m = updateModel(t, m, runeKey("k"))
+	if m.interactiveMod.cursor != 11 {
+		t.Fatalf("k at first cursor = %d, want 11 (cycled)", m.interactiveMod.cursor)
+	}
+}
+
 func TestInteractiveDeckViewDerivesVisibilityFromCursor(t *testing.T) {
 	im := newInteractiveModel("work")
 	im.setWindows(tenPlusWindows(12))
@@ -166,8 +182,8 @@ func TestInteractiveVisibleBandsRespectMinimumContentRows(t *testing.T) {
 	}{
 		{"single window", 1, 40, 1},
 		{"three windows fit", 3, 40, 3},
-		{"four cap at three deck bands", 4, 44, 3},
-		{"five overflow reserves indicators", 5, 44, 3},
+		{"four equal bands fit", 4, 44, 4},
+		{"five cap at four bands", 5, 44, 4},
 		{"overflow minimum height", 9, 13, 1},
 		{"tiny terminal still shows one", 3, 11, 1},
 	}
@@ -354,20 +370,18 @@ func TestRenderInteractiveDeckLayout(t *testing.T) {
 		t.Fatalf("rendered lines = %d, want 40", len(lines))
 	}
 
-	// Deck bands (rows 1..11 and 12..22), double rule (23..24), slot
-	// (25..39), indicator row on top; geometry never depends on the cursor.
+	// Equal deck bands (rows 1..13 and 14..26), one double-rule row (27),
+	// slot (28..39), indicator row on top; geometry never depends on the
+	// cursor.
 	primary := rgb{r: 7, g: 102, b: 120} // #076678
-	assertEveryVisibleCellUsesForeground(t, lines[23], primary)
-	assertEveryVisibleCellUsesForeground(t, lines[24], primary)
+	assertEveryVisibleCellUsesForeground(t, lines[27], primary)
 
 	plain := stripLines(rendered)
 	if strings.Contains(strings.Join(plain, "\n"), "peeking") {
 		t.Fatal("band titles still rendered")
 	}
-	for _, rule := range []int{23, 24} {
-		if got := plain[rule]; strings.Trim(got, "═") != "" {
-			t.Errorf("rule row %d = %q, want full double rule", rule, got)
-		}
+	if got := plain[27]; strings.Trim(got, "═") != "" {
+		t.Errorf("rule row 27 = %q, want full double rule", got)
 	}
 	// Captures bottom-anchor inside their regions: deck windows above, the
 	// selected window in the slot ending at the very bottom row.
@@ -375,7 +389,7 @@ func TestRenderInteractiveDeckLayout(t *testing.T) {
 		row  int
 		text string
 	}{
-		{11, "zero"}, {22, "one"}, {39, "two"},
+		{13, "zero"}, {26, "one"}, {39, "two"},
 	} {
 		if got := plain[want.row]; !strings.HasPrefix(got, want.text) {
 			t.Errorf("row %d = %q, want capture %q", want.row, got, want.text)
@@ -386,12 +400,9 @@ func TestRenderInteractiveDeckLayout(t *testing.T) {
 	m.interactiveMod.cursor = 1
 	rolled := stripLines(m.viewInteractive())
 	rolledLines := strings.Split(m.viewInteractive(), "\n")
-	assertEveryVisibleCellUsesForeground(t, rolledLines[23], primary)
-	assertEveryVisibleCellUsesForeground(t, rolledLines[24], primary)
-	for _, rule := range []int{23, 24} {
-		if got := rolled[rule]; strings.Trim(got, "═") != "" {
-			t.Errorf("rule row %d moved: %q", rule, got)
-		}
+	assertEveryVisibleCellUsesForeground(t, rolledLines[27], primary)
+	if got := rolled[27]; strings.Trim(got, "═") != "" {
+		t.Errorf("rule row 27 moved: %q", got)
 	}
 	if got := rolled[39]; !strings.HasPrefix(got, "one") {
 		t.Errorf("slot after roll = %q, want capture one at the bottom", got)
@@ -419,7 +430,7 @@ func TestRenderInteractiveIndicatorsFrameOverflow(t *testing.T) {
 		row  int
 		text string
 	}{
-		{11, "nine"}, {22, "ten"}, {39, "eleven"},
+		{13, "nine"}, {26, "ten"}, {39, "eleven"},
 	} {
 		if got := plain[want.row]; !strings.HasPrefix(got, want.text) {
 			t.Errorf("row %d = %q, want capture %q", want.row, got, want.text)
@@ -433,7 +444,7 @@ func TestRenderInteractiveIndicatorsFrameOverflow(t *testing.T) {
 	if got := plain[0]; got != "" {
 		t.Errorf("indicator at cursor 0 = %q, want spacer", got)
 	}
-	for row := 1; row <= 22; row++ {
+	for row := 1; row <= 26; row++ {
 		if plain[row] != "" {
 			t.Errorf("blank deck row %d = %q, want empty fill", row, plain[row])
 		}
@@ -445,7 +456,7 @@ func TestRenderInteractiveIndicatorsFrameOverflow(t *testing.T) {
 
 func TestRenderInteractiveBottomCropsContent(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
-	m.height = 36 // one deck band of 13 rows, slot of 20
+	m.height = 36 // equal bands: 12, 11, 11 content rows
 	m.interactiveMod.cursor = 2
 	capture := make([]string, 20)
 	for i := range capture {
@@ -454,12 +465,12 @@ func TestRenderInteractiveBottomCropsContent(t *testing.T) {
 	m.interactiveMod.captures[1] = strings.Join(capture, "\n")
 
 	plain := stripLines(m.viewInteractive())
-	// The deck band (window 1) occupies rows 1..13; a 13-row window over a
-	// 20-line capture keeps the tail: lines 07..19.
-	if got := plain[1]; got != "line-07" {
-		t.Errorf("first deck row = %q, want line-07", got)
+	// The lower deck band (window 1) occupies rows 13..23; an 11-row window
+	// over a 20-line capture keeps the tail: lines 09..19.
+	if got := plain[13]; got != "line-09" {
+		t.Errorf("first deck row = %q, want line-09", got)
 	}
-	if got := plain[13]; got != "line-19" {
+	if got := plain[23]; got != "line-19" {
 		t.Errorf("last deck row = %q, want line-19", got)
 	}
 }

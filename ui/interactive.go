@@ -71,24 +71,26 @@ func (im *interactiveModel) setWindows(windows []tmux.Window) {
 	}
 }
 
-// interactiveVisibleBands reports how many window bands (deck plus slot)
-// fit in height rows while keeping the minimum content rows per deck band:
-// one indicator row, two double-rule rows, deck bands, and a 1.5x slot.
+// interactiveVisibleBands reports how many equal window bands (deck plus
+// slot) fit in height rows while keeping the minimum content rows per
+// band: one indicator row and one double-rule row of chrome.
 func interactiveVisibleBands(windowCount, height int) int {
 	if windowCount <= 0 {
 		return 0
 	}
-	fit := max(1, (height-8)/interactiveMinContentRows)
+	fit := max(1, (height-2)/interactiveMinContentRows)
 	return min(windowCount, fit)
 }
 
-// move shifts the selection by delta windows. Visibility is derived from
-// the cursor on every render, so no scroll state needs maintaining.
+// move shifts the selection by delta windows, cycling past either end.
+// Visibility is derived from the cursor on every render, so no scroll
+// state needs maintaining.
 func (im *interactiveModel) move(delta int) {
 	if len(im.windows) == 0 {
 		return
 	}
-	im.cursor = min(max(im.cursor+delta, 0), len(im.windows)-1)
+	n := len(im.windows)
+	im.cursor = ((im.cursor+delta)%n + n) % n
 }
 
 func (im *interactiveModel) first() {
@@ -152,16 +154,16 @@ func (im *interactiveModel) visibleWindow() *tmux.Window {
 }
 
 // interactiveMinimumHeight is the smallest terminal height that can show
-// the indicator row, the double rule, and one minimum-size slot.
-const interactiveMinimumHeight = interactiveMinContentRows + 3
+// the indicator row, the double rule, and one minimum-size band.
+const interactiveMinimumHeight = interactiveMinContentRows + 2
 
-// interactiveLayout describes the bottom-anchored deck: deck bands above a
-// double rule and the selected window's taller slot below it. Geometry is
-// fully static; only content changes as the cursor moves.
+// interactiveLayout describes the bottom-anchored deck: equal deck bands
+// above one double-rule row and the selected window's band below it.
+// Geometry is fully static; only content changes as the cursor moves.
 type interactiveLayout struct {
 	visible     int   // total bands on screen, including the slot
 	deckRows    []int // content rows per deck band, top to bottom
-	slotRows    int   // content rows for the selected slot
+	slotRows    int   // content rows for the selected band
 	hiddenAbove int   // windows hidden beyond the top indicator
 }
 
@@ -175,31 +177,27 @@ func computeInteractiveLayout(windowCount, cursor, height int) interactiveLayout
 		visible:     visible,
 		hiddenAbove: max(0, cursor-deckBands),
 	}
-	available := height - 3 // top indicator row plus the two-row double rule
-	if deckBands <= 0 {
-		layout.slotRows = max(1, available)
-		return layout
-	}
-	// Deck bands cost 2 size-units each, the slot 3 (about 1.5x a deck band).
-	units := 2*deckBands + 3
-	unit := available / units
-	leftover := available % units
+	// Every band is equal: the indicator row plus the single rule row are
+	// the only chrome; leftover rows fall to earlier bands, the slot last.
+	available := height - 2
+	base := max(1, available/visible)
+	leftover := available % visible
 	layout.deckRows = make([]int, deckBands)
 	for i := range layout.deckRows {
-		layout.deckRows[i] = 2 * unit
+		layout.deckRows[i] = base
 		if leftover > 0 {
 			layout.deckRows[i]++
 			leftover--
 		}
 	}
-	layout.slotRows = 3*unit + leftover
+	layout.slotRows = base + leftover
 	return layout
 }
 
 // renderInteractiveView paints the bottom-anchored deck: a top indicator
-// row, deck bands of unselected windows, a double rule, and the selected
-// window's taller slot. Geometry is static; moving the cursor only changes
-// which content each region carries.
+// row, equal deck bands of unselected windows, one double-rule row, and the
+// selected window's band. Geometry is static; moving the cursor only
+// changes which content each region carries.
 func renderInteractiveView(m *Model) string {
 	im := &m.interactiveMod
 	if !im.loaded {
@@ -225,7 +223,7 @@ func renderInteractiveView(m *Model) string {
 		lines = append(lines, strings.Split(renderPreview(content, m.width, layout.deckRows[b]), "\n")...)
 	}
 	rule := interactiveDoubleRule(m.width)
-	lines = append(lines, rule, rule)
+	lines = append(lines, rule)
 	lines = append(lines, strings.Split(renderPreview(im.captures[im.windows[im.cursor].Index], m.width, layout.slotRows), "\n")...)
 	return fixedBox(strings.Join(lines, "\n"), m.width, m.height)
 }
