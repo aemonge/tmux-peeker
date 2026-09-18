@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Interactive window grid: `i` on any row opens a fullscreen view of that session with every window as an equal live band (bottom-cropped, 500 ms refresh), overflow indicators when windows don't fit, `j`/`k`/`g`/`G` navigation, and `Enter` attaching to the highlighted window. Keys live in the new `interactive` keybinding context.
 - Window renaming from the tree: `r` on a window row renames that window in place, with the same overlay as session rename.
 - Built-in `default` and `solarized-gruvbox` color themes, selectable by CLI flag, `TMUX_PEEKER_THEME`, or XDG configuration.
 - Configurable, context-aware TUI keybindings with conflict validation and an on-demand `?` help card.
