@@ -374,6 +374,28 @@ func TestInteractiveViewTooSmallFallsBackToError(t *testing.T) {
 	}
 }
 
+func TestInteractiveResizeReclampsBandOffset(t *testing.T) {
+	m := enterInteractive(t, interactiveTestModel())
+	m.height = 40
+	m.interactiveMod.setWindows(tenPlusWindows(12), 40)
+	m.interactiveMod.cursor = 11
+	m.interactiveMod.ensureCursorVisible(40)
+	if m.interactiveMod.offset != 9 {
+		t.Fatalf("offset before resize = %d, want 9", m.interactiveMod.offset)
+	}
+
+	// Grow the terminal to fit every window; the stale offset must not leak
+	// into the renderer and index past the window list.
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 160})
+	if m.interactiveMod.offset != 0 {
+		t.Fatalf("offset after resize = %d, want 0", m.interactiveMod.offset)
+	}
+	rendered := m.viewInteractive()
+	if len(strings.Split(rendered, "\n")) != 160 {
+		t.Fatalf("rendered lines = %d, want 160", len(strings.Split(rendered, "\n")))
+	}
+}
+
 // stubTmuxRunner fakes tmux for ui-level tests; every Output call returns a
 // single stub line.
 type stubTmuxRunner struct{}

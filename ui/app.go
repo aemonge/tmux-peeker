@@ -145,6 +145,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.mode == modeInteractive {
+			// Re-clamp the band window so a resize never exposes rows past the
+			// window list in the renderer.
+			m.interactiveMod.ensureCursorVisible(msg.Height)
+		}
 		return m, nil
 
 	case tickMsg:
