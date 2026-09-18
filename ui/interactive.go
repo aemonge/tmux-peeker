@@ -42,9 +42,11 @@ func newInteractiveModel(sessionName string) interactiveModel {
 	return interactiveModel{session: sessionName, captures: make(map[int]string)}
 }
 
-// setWindows replaces the window list, keeping the cursor on the same window
-// when it still exists and clamping otherwise.
+// setWindows replaces the window list. The first load lands the cursor on
+// the session's active window (the launch window); later reloads keep the
+// cursor on the same window when it still exists and clamp otherwise.
 func (im *interactiveModel) setWindows(windows []tmux.Window, height int) {
+	firstLoad := !im.loaded
 	previous := -1
 	if im.cursor < len(im.windows) {
 		previous = im.windows[im.cursor].Index
@@ -52,10 +54,19 @@ func (im *interactiveModel) setWindows(windows []tmux.Window, height int) {
 	im.windows = windows
 	im.loaded = true
 	im.cursor = 0
-	for i, w := range windows {
-		if w.Index == previous {
-			im.cursor = i
-			break
+	if firstLoad {
+		for i, w := range windows {
+			if w.Active {
+				im.cursor = i
+				break
+			}
+		}
+	} else {
+		for i, w := range windows {
+			if w.Index == previous {
+				im.cursor = i
+				break
+			}
 		}
 	}
 	if im.cursor >= len(windows) {

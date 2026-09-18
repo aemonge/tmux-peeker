@@ -170,17 +170,71 @@ func TestInteractiveWindowLoadPreservesCursorByWindowIndex(t *testing.T) {
 	m.interactiveMod.cursor = 2
 	m.interactiveMod.offset = 0
 
-	// Window 1 was killed outside; indexes shift down.
+	// Window 1 was killed outside; indexes shift down. The reload also flips
+	// the active flag, but navigation intent wins over the new active window.
 	m = updateModel(t, m, windowsLoadedMsg{
 		sessionName: "work",
 		windows: []tmux.Window{
-			{Index: 0, Name: "editor"},
+			{Index: 0, Name: "editor", Active: true},
 			{Index: 2, Name: "logs"},
 		},
 	})
 	if m.interactiveMod.cursor != 1 {
 		t.Fatalf("cursor = %d, want 1 (same window index 2)", m.interactiveMod.cursor)
 	}
+}
+
+func TestInteractiveFirstLoadPreselectsActiveWindow(t *testing.T) {
+	t.Run("cold entry via list refresh", func(t *testing.T) {
+		m := NewModel()
+		m.sessions = []tmux.Session{{Name: "fresh"}}
+		m.applyFilter()
+		m.width, m.height = 100, 40
+		m = updateModel(t, m, runeKey("i"))
+
+		m = updateModel(t, m, windowsLoadedMsg{
+			sessionName: "fresh",
+			windows: []tmux.Window{
+				{Index: 0, Name: "editor"},
+				{Index: 1, Name: "server", Active: true},
+				{Index: 2, Name: "logs"},
+			},
+		})
+		if m.interactiveMod.cursor != 1 {
+			t.Fatalf("cursor = %d, want 1 (active window)", m.interactiveMod.cursor)
+		}
+	})
+
+	t.Run("warm entry from cache", func(t *testing.T) {
+		m := NewModel()
+		m.sessions = []tmux.Session{{Name: "work"}}
+		m.tree.setSessionExpanded("work", true)
+		m.tree.windowsCache["work"] = []tmux.Window{
+			{Index: 0, Name: "editor"},
+			{Index: 1, Name: "server", Active: true},
+		}
+		m.applyFilter()
+		m.width, m.height = 100, 40
+		m = updateModel(t, m, runeKey("i"))
+		if m.interactiveMod.cursor != 1 {
+			t.Fatalf("cursor = %d, want 1 (active window from cache)", m.interactiveMod.cursor)
+		}
+	})
+
+	t.Run("no active flag falls back to first", func(t *testing.T) {
+		m := NewModel()
+		m.sessions = []tmux.Session{{Name: "fresh"}}
+		m.applyFilter()
+		m.width, m.height = 100, 40
+		m = updateModel(t, m, runeKey("i"))
+		m = updateModel(t, m, windowsLoadedMsg{
+			sessionName: "fresh",
+			windows: []tmux.Window{{Index: 3, Name: "only"}},
+		})
+		if m.interactiveMod.cursor != 0 {
+			t.Fatalf("cursor = %d, want 0", m.interactiveMod.cursor)
+		}
+	})
 }
 
 func TestInteractiveEnterAttachesToHighlightedWindow(t *testing.T) {
