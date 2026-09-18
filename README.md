@@ -13,7 +13,7 @@
 A session name is rarely enough when several terminals look alike. tmux-peeker keeps the selected target's live output behind a compact picker, so you can recognize the workspace before switching.
 
 - **Live previews** — see the selected session, window, or pane, refreshed every 500 ms
-- **Interactive window grid** — press `i` to fill the screen with a session's windows as equal live bands on a fast ~200 ms refresh; steady separators recolor to mark the selection and `Enter` jumps to it
+- **Interactive window deck** — press `i` to stack a session's windows as live bands on a fast ~200 ms refresh; the selected window always sits in the bottom slot under a double rule, and `Enter` jumps to it
 - **Hierarchy-aware navigation** — drill from sessions into windows and panes
 - **Fast switching** — jump to the exact highlighted target with one key
 - **MRU ordering** — move between recent workspaces like an operating-system switcher
@@ -68,7 +68,7 @@ Use `j`/`k` or the arrow keys to move, `Enter` or `Backspace` to attach, and `q`
 | Drill into session or window | `l`, `→`, `Tab` |
 | Return to parent | `h`, `←`, `Shift+Tab` |
 | Attach selected target | `Enter`, `Backspace` |
-| Interactive window grid | `i` |
+| Interactive window deck | `i` |
 | Create / rename / kill (session or window) | `n` / `r` / `x` |
 | Move selected window | `m` |
 | Filter / clear filter | `/` / `Esc` |
