@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Interactive window deck: `i` on any row opens a fullscreen bottom-anchored deck of that session's windows — live bottom-cropped captures on a dedicated ~200 ms tick, the session's active window preselected in the bottom band below a single classic double rule, equal band sizes, deck bands cycling with `j`/`k` (wrap-around) and jumping with `g`/`G` behind an always-present `↑ N windows above` indicator, and `Enter` attaching to the bottom band's window. Keys live in the new `interactive` keybinding context.
+- Interactive window deck: `i` on any row opens a fullscreen bottom-anchored deck of that session's windows — live bottom-cropped captures on a dedicated ~200 ms tick, the session's active window preselected in the bottom band below a single classic double rule, equal band sizes, the deck wraps cyclically (`j`/`k` cycle with no blank bands, `g`/`G` jump) behind an always-present `↑ N windows above` indicator, and `Enter` attaching to the bottom band's window. Keys live in the new `interactive` keybinding context.
 - Window renaming from the tree: `r` on a window row renames that window in place, with the same overlay as session rename.
 - Built-in `default` and `solarized-gruvbox` color themes, selectable by CLI flag, `TMUX_PEEKER_THEME`, or XDG configuration.
 - Configurable, context-aware TUI keybindings with conflict validation and an on-demand `?` help card.

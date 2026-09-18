@@ -101,15 +101,16 @@ func (im *interactiveModel) last() {
 	im.cursor = max(0, len(im.windows)-1)
 }
 
-// deckView returns the window indexes currently on screen: the deck bands
-// above the slot plus the selected window itself. Blank deck fills occur
-// when the cursor sits early in the list.
+// deckView returns the window indexes currently on screen as a cyclic
+// slice ending at the selected window: the deck wraps around the list, so
+// early selections show the tail windows above instead of blanks.
 func (im *interactiveModel) deckView(visible int) (first, count int) {
 	if visible <= 0 || len(im.windows) == 0 || im.cursor >= len(im.windows) {
 		return 0, 0
 	}
-	first = max(0, im.cursor-(visible-1))
-	return first, im.cursor - first + 1
+	n := len(im.windows)
+	first = ((im.cursor-(visible-1))%n + n) % n
+	return first, min(visible, n)
 }
 
 // interactiveCaptureMsg carries a fresh capture for one interactive band.
@@ -131,16 +132,19 @@ func captureInteractiveWindow(sessionName string, windowIndex int) tea.Cmd {
 	}
 }
 
-// captureCmds returns capture commands for the windows on screen.
+// captureCmds returns capture commands for the windows on screen, walking
+// the cyclic deck slice.
 func (im *interactiveModel) captureCmds(height int) []tea.Cmd {
 	if !im.loaded || len(im.windows) == 0 || height <= 0 {
 		return nil
 	}
 	visible := interactiveVisibleBands(len(im.windows), height)
 	first, count := im.deckView(visible)
+	n := len(im.windows)
 	cmds := make([]tea.Cmd, 0, count)
-	for i := first; i < first+count; i++ {
-		cmds = append(cmds, captureInteractiveWindow(im.session, im.windows[i].Index))
+	for i := 0; i < count; i++ {
+		idx := (first + i) % n
+		cmds = append(cmds, captureInteractiveWindow(im.session, im.windows[idx].Index))
 	}
 	return cmds
 }
@@ -174,8 +178,9 @@ func computeInteractiveLayout(windowCount, cursor, height int) interactiveLayout
 	}
 	deckBands := visible - 1
 	layout := interactiveLayout{
-		visible:     visible,
-		hiddenAbove: max(0, cursor-deckBands),
+		visible: visible,
+		// The cyclic deck hides a constant count: every window not on screen.
+		hiddenAbove: max(0, windowCount-visible),
 	}
 	// Every band is equal: the indicator row plus the single rule row are
 	// the only chrome; leftover rows fall to earlier bands, the slot last.
@@ -214,12 +219,12 @@ func renderInteractiveView(m *Model) string {
 	lines := make([]string, 0, m.height)
 	lines = append(lines, interactiveIndicatorRow(layout.hiddenAbove, "above", m.width))
 	deckBands := len(layout.deckRows)
+	n := len(im.windows)
 	for b := 0; b < deckBands; b++ {
-		windowIdx := im.cursor - deckBands + b
-		content := ""
-		if windowIdx >= 0 {
-			content = im.captures[im.windows[windowIdx].Index]
-		}
+		// Cyclic fill: bands above an early selection wrap to the list tail,
+		// so no band ever renders blank.
+		windowIdx := ((im.cursor-deckBands+b)%n + n) % n
+		content := im.captures[im.windows[windowIdx].Index]
 		lines = append(lines, strings.Split(renderPreview(content, m.width, layout.deckRows[b]), "\n")...)
 	}
 	rule := interactiveDoubleRule(m.width)

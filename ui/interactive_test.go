@@ -157,8 +157,8 @@ func TestInteractiveDeckViewDerivesVisibilityFromCursor(t *testing.T) {
 		first   int
 		count   int
 	}{
-		{cursor: 0, visible: 3, first: 0, count: 1},
-		{cursor: 1, visible: 3, first: 0, count: 2},
+		{cursor: 0, visible: 3, first: 10, count: 3},
+		{cursor: 1, visible: 3, first: 11, count: 3},
 		{cursor: 5, visible: 3, first: 3, count: 3},
 		{cursor: 11, visible: 3, first: 9, count: 3},
 		{cursor: 11, visible: 12, first: 0, count: 12},
@@ -327,10 +327,10 @@ func TestInteractiveCaptureCmdsCoverOnScreenWindowsOnly(t *testing.T) {
 		t.Fatalf("capture cmds = %d, want 3 on-screen windows", len(cmds))
 	}
 
-	// Early cursor: only the selected window is on screen; deck fills blank.
+	// Early cursor: the deck wraps to the tail, never leaving blank bands.
 	m.interactiveMod.cursor = 0
-	if cmds := m.interactiveMod.captureCmds(40); len(cmds) != 1 {
-		t.Fatalf("capture cmds at cursor 0 = %d, want 1", len(cmds))
+	if cmds := m.interactiveMod.captureCmds(40); len(cmds) != 3 {
+		t.Fatalf("capture cmds at cursor 0 = %d, want 3 (cyclic)", len(cmds))
 	}
 }
 
@@ -437,17 +437,18 @@ func TestRenderInteractiveIndicatorsFrameOverflow(t *testing.T) {
 		}
 	}
 
-	// Early window: blank deck fills, spacer indicator, slot holds window 0.
+	// Early window: the deck wraps to the tail — no blank bands, no spacer.
 	m.interactiveMod.cursor = 0
 	m.interactiveMod.captures[0] = "first"
 	plain = stripLines(m.viewInteractive())
-	if got := plain[0]; got != "" {
-		t.Errorf("indicator at cursor 0 = %q, want spacer", got)
+	if got := plain[0]; !strings.Contains(got, "↑ 9 windows above") {
+		t.Errorf("indicator at cursor 0 = %q, want ↑ 9 windows above (constant)", got)
 	}
-	for row := 1; row <= 26; row++ {
-		if plain[row] != "" {
-			t.Errorf("blank deck row %d = %q, want empty fill", row, plain[row])
-		}
+	if got := plain[13]; !strings.HasPrefix(got, "ten") {
+		t.Errorf("cyclic deck row 13 = %q, want capture ten", got)
+	}
+	if got := plain[26]; !strings.HasPrefix(got, "eleven") {
+		t.Errorf("cyclic deck row 26 = %q, want capture eleven", got)
 	}
 	if got := plain[39]; !strings.HasPrefix(got, "first") {
 		t.Errorf("slot at cursor 0 = %q, want capture first", got)
