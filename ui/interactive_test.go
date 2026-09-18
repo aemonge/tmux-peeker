@@ -229,7 +229,7 @@ func TestInteractiveFirstLoadPreselectsActiveWindow(t *testing.T) {
 		m = updateModel(t, m, runeKey("i"))
 		m = updateModel(t, m, windowsLoadedMsg{
 			sessionName: "fresh",
-			windows: []tmux.Window{{Index: 3, Name: "only"}},
+			windows:     []tmux.Window{{Index: 3, Name: "only"}},
 		})
 		if m.interactiveMod.cursor != 0 {
 			t.Fatalf("cursor = %d, want 0", m.interactiveMod.cursor)
@@ -320,33 +320,44 @@ func stripLines(rendered string) []string {
 	return lines
 }
 
-func TestRenderInteractiveEqualBands(t *testing.T) {
+func TestRenderInteractiveSelectedBandIsFramedWithoutTitles(t *testing.T) {
+	useSolarizedTrueColor(t)
 	m := enterInteractive(t, interactiveTestModel())
-	m.height = 40
-	rendered := m.viewInteractive()
+	m.width, m.height = 60, 40
+	m.interactiveMod.captures[0] = "zero"
+	m.interactiveMod.captures[1] = "one"
+	m.interactiveMod.captures[2] = "two"
 
+	rendered := m.viewInteractive()
 	lines := strings.Split(rendered, "\n")
 	if len(lines) != 40 {
 		t.Fatalf("rendered lines = %d, want 40", len(lines))
 	}
+
+	// Selected band (window 0) is framed by accent rules at its top and
+	// bottom, paid out of its own row budget.
+	accent := rgb{r: 0x42, g: 0x7B, b: 0x58}
+	assertEveryVisibleCellUsesForeground(t, lines[0], accent)
+	assertEveryVisibleCellUsesForeground(t, lines[13], accent)
+
 	plain := stripLines(rendered)
-	// 40 rows over 3 bands: 14 + 13 + 13, headers at band starts.
-	for _, want := range []struct {
-		line int
-		text string
-	}{
-		{0, "▸ peeking work:0 editor — nvim"},
-		{14, "▷ peeking work:1 server — go run"},
-		{27, "▷ peeking work:2 logs — tail"},
-	} {
-		if got := plain[want.line]; !strings.HasPrefix(got, want.text) {
-			t.Errorf("line %d = %q, want prefix %q", want.line, got, want.text)
+	if strings.Contains(strings.Join(plain, "\n"), "peeking") {
+		t.Fatal("band titles still rendered")
+	}
+	for _, border := range []int{0, 13} {
+		if got := plain[border]; strings.Trim(got, "─") != "" {
+			t.Errorf("border row %d = %q, want full accent rule", border, got)
 		}
 	}
-	for _, filler := range []int{13, 26, 39} {
-		if plain[filler] != "" {
-			t.Errorf("content line %d = %q, want blank filler", filler, plain[filler])
-		}
+	// Captures bottom-anchor inside their bands.
+	if got := plain[12]; !strings.HasPrefix(got, "zero") {
+		t.Errorf("band 0 last content row = %q, want capture zero", got)
+	}
+	if got := plain[26]; !strings.HasPrefix(got, "one") {
+		t.Errorf("band 1 last content row = %q, want capture one", got)
+	}
+	if got := plain[39]; !strings.HasPrefix(got, "two") {
+		t.Errorf("band 2 last content row = %q, want capture two", got)
 	}
 }
 
@@ -376,17 +387,23 @@ func TestRenderInteractiveIndicatorsFrameOverflow(t *testing.T) {
 	if got := plain[39]; got != "" {
 		t.Errorf("bottom indicator at last = %q, want spacer", got)
 	}
-	if got := plain[1]; !strings.HasPrefix(got, "▷ peeking work:9 win") {
-		t.Errorf("first band header = %q, want window 9", got)
+	// offset 9: bands are windows 9 (rows 1..13), 10 (rows 14..26), and the
+	// selected window 11 framed at rows 27..38.
+	for _, border := range []int{27, 38} {
+		if got := plain[border]; strings.Trim(got, "─") != "" {
+			t.Errorf("border row %d = %q, want accent rule", border, got)
+		}
 	}
-	if got := plain[27]; !strings.HasPrefix(got, "▸ peeking work:11 win") {
-		t.Errorf("selected band header = %q, want window 11", got)
+	for row := 1; row < 27; row++ {
+		if strings.HasPrefix(plain[row], "─") {
+			t.Errorf("row %d unexpectedly framed", row)
+		}
 	}
 }
 
 func TestRenderInteractiveBottomCropsContent(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
-	m.height = 36 // 3 bands of 12 rows each
+	m.height = 36 // bands of 12 rows: framed 12 + 12 + 12
 	capture := make([]string, 20)
 	for i := range capture {
 		capture[i] = fmt.Sprintf("line-%02d", i)
@@ -394,10 +411,10 @@ func TestRenderInteractiveBottomCropsContent(t *testing.T) {
 	m.interactiveMod.captures[1] = strings.Join(capture, "\n")
 
 	plain := stripLines(m.viewInteractive())
-	// Band 1 starts at row 12 (header), content rows 13..23 hold the tail of
-	// the 20-line capture: lines 09..19.
-	if got := plain[13]; got != "line-09" {
-		t.Errorf("first content row = %q, want line-09", got)
+	// Band 1 occupies rows 12..23; a 12-row window over a 20-line capture
+	// keeps the tail: lines 08..19.
+	if got := plain[12]; got != "line-08" {
+		t.Errorf("first content row = %q, want line-08", got)
 	}
 	if got := plain[23]; got != "line-19" {
 		t.Errorf("last content row = %q, want line-19", got)
@@ -450,28 +467,6 @@ func TestInteractiveResizeReclampsBandOffset(t *testing.T) {
 	rendered := m.viewInteractive()
 	if len(strings.Split(rendered, "\n")) != 160 {
 		t.Fatalf("rendered lines = %d, want 160", len(strings.Split(rendered, "\n")))
-	}
-}
-
-func TestInteractiveSelectedHeaderStaysQuiet(t *testing.T) {
-	useSolarizedTrueColor(t)
-	window := tmux.Window{Index: 2, Name: "logs", ActiveCommand: "tail"}
-	selected := interactiveHeaderRow("work", window, true, 48)
-	idle := interactiveHeaderRow("work", window, false, 48)
-
-	// Selection must not restyle the header: both rows carry the quiet
-	// surface background, and only the marker glyph differs.
-	surface := rgb{r: 251, g: 241, b: 199}
-	assertEveryVisibleCellUsesBackground(t, selected, surface)
-	assertEveryVisibleCellUsesBackground(t, idle, surface)
-
-	selPlain := strings.TrimSpace(ansi.Strip(selected))
-	idlePlain := strings.TrimSpace(ansi.Strip(idle))
-	if !strings.HasPrefix(selPlain, "▸") {
-		t.Errorf("selected header = %q, want ▸ marker", selPlain)
-	}
-	if !strings.HasPrefix(idlePlain, "▷") {
-		t.Errorf("idle header = %q, want ▷ marker", idlePlain)
 	}
 }
 

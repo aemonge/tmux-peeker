@@ -13,6 +13,7 @@ import (
 const (
 	// interactiveMinContentRows is the smallest number of live content rows a
 	// band may show before windows overflow into indicator rows instead.
+	// The selected band additionally pays two border rows from its budget.
 	interactiveMinContentRows = 10
 	// interactiveRefreshInterval is the grid's dedicated capture cadence,
 	// decoupled from the picker's slower session tick.
@@ -20,9 +21,6 @@ const (
 	// interactiveWindowRefreshTicks refreshes the window list every N fast
 	// ticks (about 2 s at the default cadence).
 	interactiveWindowRefreshTicks = 10
-	// interactiveHeaderRows is removed with titles in a later step; kept as
-	// the interim per-band header cost.
-	interactiveHeaderRows = 1
 )
 
 // interactiveModel drives the fullscreen multi-window session view: equal
@@ -83,7 +81,7 @@ func interactiveVisibleBands(windowCount, height int) int {
 		return 0
 	}
 	fit := func(reserved int) int {
-		return max(1, (height-reserved)/(interactiveHeaderRows+interactiveMinContentRows))
+		return max(1, (height-reserved)/interactiveMinContentRows)
 	}
 	visible := fit(0)
 	if windowCount <= visible {
@@ -205,9 +203,11 @@ func computeInteractiveLayout(windowCount, offset, height int) interactiveLayout
 	return layout
 }
 
-// renderInteractiveView paints the fullscreen multi-window view: one header
-// plus bottom-cropped live content per visible window band, framed by dim
-// overflow indicators when windows do not all fit.
+// renderInteractiveView paints the fullscreen multi-window view: pure
+// preview content per visible window band with no titles, framed by dim
+// overflow indicators when windows do not all fit. The selected band is
+// framed by accent top and bottom border rows paid from its own budget,
+// so content width is never cropped.
 func renderInteractiveView(m *Model) string {
 	im := &m.interactiveMod
 	if !im.loaded {
@@ -228,9 +228,15 @@ func renderInteractiveView(m *Model) string {
 	for i := 0; i < layout.visible; i++ {
 		window := im.windows[im.offset+i]
 		selected := im.offset+i == im.cursor
-		lines = append(lines, interactiveHeaderRow(im.session, window, selected, m.width))
 		content := im.captures[window.Index]
-		lines = append(lines, strings.Split(renderPreview(content, m.width, layout.bandRows[i]-interactiveHeaderRows), "\n")...)
+		bandRows := layout.bandRows[i]
+		if selected {
+			lines = append(lines, interactiveBorderRow(m.width))
+			lines = append(lines, strings.Split(renderPreview(content, m.width, bandRows-2), "\n")...)
+			lines = append(lines, interactiveBorderRow(m.width))
+		} else {
+			lines = append(lines, strings.Split(renderPreview(content, m.width, bandRows), "\n")...)
+		}
 	}
 	if layout.overflow {
 		lines = append(lines, interactiveIndicatorRow(layout.hiddenBelow, "below", m.width))
@@ -238,23 +244,11 @@ func renderInteractiveView(m *Model) string {
 	return fixedBox(strings.Join(lines, "\n"), m.width, m.height)
 }
 
-// interactiveHeaderRow renders one band header: a fancy peek prefix, the
-// session:window target, and the active command. Every header shares the
-// same quiet muted style; the ▸/▷ marker is the only selection cue.
-func interactiveHeaderRow(session string, w tmux.Window, selected bool, width int) string {
-	marker := "▷"
-	if selected {
-		marker = "▸"
-	}
-	text := fmt.Sprintf("%s peeking %s:%d %s", marker, session, w.Index, w.Name)
-	if w.ActiveCommand != "" {
-		text += " — " + w.ActiveCommand
-	}
-	row := padOrTruncate(text, width)
+// interactiveBorderRow renders the selected band's accent horizontal frame.
+func interactiveBorderRow(width int) string {
 	return lipgloss.NewStyle().
-		Foreground(colorMuted).
-		Background(colorSurface).
-		Render(row)
+		Foreground(colorAccent).
+		Render(strings.Repeat("─", width))
 }
 
 // interactiveIndicatorRow renders a dim overflow indicator; a count of zero
