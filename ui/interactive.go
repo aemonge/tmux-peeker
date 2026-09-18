@@ -73,21 +73,15 @@ func (im *interactiveModel) setWindows(windows []tmux.Window, height int) {
 	im.ensureCursorVisible(height)
 }
 
-// interactiveVisibleBands reports how many window bands fit in height rows.
-// Overflowing sessions always reserve two indicator rows so the band count
-// stays stable while scrolling.
+// interactiveVisibleBands reports how many window bands fit in height rows
+// while keeping the minimum content rows per band and one shared separator
+// row per boundary (indicator rows replace the edges when overflowing).
 func interactiveVisibleBands(windowCount, height int) int {
 	if windowCount <= 0 {
 		return 0
 	}
-	fit := func(reserved int) int {
-		return max(1, (height-reserved)/interactiveMinContentRows)
-	}
-	visible := fit(0)
-	if windowCount <= visible {
-		return windowCount
-	}
-	return min(windowCount, fit(2))
+	fit := max(1, (height-1)/(interactiveMinContentRows+1))
+	return min(windowCount, fit)
 }
 
 // move shifts the cursor by delta windows, scrolling the band window when
@@ -169,11 +163,12 @@ func (im *interactiveModel) visibleWindow() *tmux.Window {
 const interactiveMinimumHeight = interactiveMinContentRows
 
 // interactiveLayout describes how the interactive view divides the screen.
-// When windows overflow, two stable indicator rows frame the bands so band
-// heights never jump while scrolling.
+// Every band boundary carries exactly one separator row so the layout never
+// changes when selection moves; overflow trades the edge rows for
+// indicator rows.
 type interactiveLayout struct {
 	visible     int
-	bandRows    []int // total rows per visible band (header + content)
+	bandRows    []int // content rows per visible band
 	hiddenAbove int
 	hiddenBelow int
 	overflow    bool
@@ -185,13 +180,16 @@ func computeInteractiveLayout(windowCount, offset, height int) interactiveLayout
 		return interactiveLayout{}
 	}
 	layout := interactiveLayout{visible: visible, overflow: windowCount > visible}
-	available := height
+	reserved := 0
+	separators := visible + 1
 	if layout.overflow {
-		available -= 2
+		reserved = 2
+		separators = visible - 1
 		layout.hiddenAbove = offset
 		layout.hiddenBelow = windowCount - offset - visible
 	}
-	base := available / visible
+	available := height - reserved - separators
+	base := max(1, available/visible)
 	leftover := available % visible
 	layout.bandRows = make([]int, visible)
 	for i := range layout.bandRows {
@@ -204,10 +202,9 @@ func computeInteractiveLayout(windowCount, offset, height int) interactiveLayout
 }
 
 // renderInteractiveView paints the fullscreen multi-window view: pure
-// preview content per visible window band with no titles, framed by dim
-// overflow indicators when windows do not all fit. The selected band is
-// framed by accent top and bottom border rows paid from its own budget,
-// so content width is never cropped.
+// preview content per visible window band with no titles, divided by one
+// steady separator row per boundary. Selection only recolors the selected
+// band's adjacent separators, so moving the cursor never reflows anything.
 func renderInteractiveView(m *Model) string {
 	im := &m.interactiveMod
 	if !im.loaded {
@@ -221,21 +218,25 @@ func renderInteractiveView(m *Model) string {
 		return interactiveNotice("Terminal too small for the interactive view", m.width, m.height)
 	}
 
+	bandSelected := func(band int) bool {
+		return im.offset+band == im.cursor
+	}
+
 	lines := make([]string, 0, m.height)
 	if layout.overflow {
 		lines = append(lines, interactiveIndicatorRow(layout.hiddenAbove, "above", m.width))
+	} else {
+		lines = append(lines, interactiveSeparatorRow(bandSelected(0), m.width))
 	}
 	for i := 0; i < layout.visible; i++ {
-		window := im.windows[im.offset+i]
-		selected := im.offset+i == im.cursor
-		content := im.captures[window.Index]
-		bandRows := layout.bandRows[i]
-		if selected {
-			lines = append(lines, interactiveBorderRow(m.width))
-			lines = append(lines, strings.Split(renderPreview(content, m.width, bandRows-2), "\n")...)
-			lines = append(lines, interactiveBorderRow(m.width))
-		} else {
-			lines = append(lines, strings.Split(renderPreview(content, m.width, bandRows), "\n")...)
+		content := im.captures[im.windows[im.offset+i].Index]
+		lines = append(lines, strings.Split(renderPreview(content, m.width, layout.bandRows[i]), "\n")...)
+		switch {
+		case i == layout.visible-1 && !layout.overflow:
+			lines = append(lines, interactiveSeparatorRow(bandSelected(i), m.width))
+		case i < layout.visible-1:
+			// Shared boundary: bright when either neighbor is selected.
+			lines = append(lines, interactiveSeparatorRow(bandSelected(i) || bandSelected(i+1), m.width))
 		}
 	}
 	if layout.overflow {
@@ -244,10 +245,15 @@ func renderInteractiveView(m *Model) string {
 	return fixedBox(strings.Join(lines, "\n"), m.width, m.height)
 }
 
-// interactiveBorderRow renders the selected band's accent horizontal frame.
-func interactiveBorderRow(width int) string {
+// interactiveSeparatorRow renders one band boundary. Bright separators use
+// the theme's primary color; quiet ones use the theme's border color.
+func interactiveSeparatorRow(bright bool, width int) string {
+	color := colorBorder
+	if bright {
+		color = colorPrimary
+	}
 	return lipgloss.NewStyle().
-		Foreground(colorAccent).
+		Foreground(color).
 		Render(strings.Repeat("─", width))
 }
 

@@ -151,8 +151,8 @@ func TestInteractiveVisibleBandsRespectMinimumContentRows(t *testing.T) {
 	}{
 		{"single window", 1, 40, 1},
 		{"three windows fit", 3, 40, 3},
-		{"four fit without indicators", 4, 44, 4},
-		{"five overflow reserves indicators", 5, 44, 4},
+		{"four need the shared separators", 4, 44, 3},
+		{"five overflow reserves indicators", 5, 44, 3},
 		{"overflow minimum height", 9, 13, 1},
 		{"tiny terminal still shows one", 3, 11, 1},
 	}
@@ -320,7 +320,7 @@ func stripLines(rendered string) []string {
 	return lines
 }
 
-func TestRenderInteractiveSelectedBandIsFramedWithoutTitles(t *testing.T) {
+func TestRenderInteractiveSteadySeparators(t *testing.T) {
 	useSolarizedTrueColor(t)
 	m := enterInteractive(t, interactiveTestModel())
 	m.width, m.height = 60, 40
@@ -334,31 +334,45 @@ func TestRenderInteractiveSelectedBandIsFramedWithoutTitles(t *testing.T) {
 		t.Fatalf("rendered lines = %d, want 40", len(lines))
 	}
 
-	// Selected band (window 0) is framed by accent rules at its top and
-	// bottom, paid out of its own row budget.
-	accent := rgb{r: 0x42, g: 0x7B, b: 0x58}
-	assertEveryVisibleCellUsesForeground(t, lines[0], accent)
-	assertEveryVisibleCellUsesForeground(t, lines[13], accent)
+	// Boundaries live at rows 0, 13, 26, 39; band content never moves.
+	primary := rgb{r: 7, g: 102, b: 120}  // #076678
+	border := rgb{r: 189, g: 174, b: 147} // #BDAE93
+	assertEveryVisibleCellUsesForeground(t, lines[0], primary)
+	assertEveryVisibleCellUsesForeground(t, lines[13], primary)
+	assertEveryVisibleCellUsesForeground(t, lines[26], border)
+	assertEveryVisibleCellUsesForeground(t, lines[39], border)
 
 	plain := stripLines(rendered)
 	if strings.Contains(strings.Join(plain, "\n"), "peeking") {
 		t.Fatal("band titles still rendered")
 	}
-	for _, border := range []int{0, 13} {
-		if got := plain[border]; strings.Trim(got, "─") != "" {
-			t.Errorf("border row %d = %q, want full accent rule", border, got)
+	for _, sep := range []int{0, 13, 26, 39} {
+		if got := plain[sep]; strings.Trim(got, "─") != "" {
+			t.Errorf("separator row %d = %q, want full rule", sep, got)
 		}
 	}
-	// Captures bottom-anchor inside their bands.
-	if got := plain[12]; !strings.HasPrefix(got, "zero") {
-		t.Errorf("band 0 last content row = %q, want capture zero", got)
+	for _, want := range []struct {
+		row  int
+		text string
+	}{
+		{12, "zero"}, {25, "one"}, {38, "two"},
+	} {
+		if got := plain[want.row]; !strings.HasPrefix(got, want.text) {
+			t.Errorf("row %d = %q, want capture %q", want.row, got, want.text)
+		}
 	}
-	if got := plain[26]; !strings.HasPrefix(got, "one") {
-		t.Errorf("band 1 last content row = %q, want capture one", got)
+
+	// Moving selection must not reflow a single row: identical plain text,
+	// only separator colors change.
+	m.interactiveMod.cursor = 1
+	if got := stripLines(m.viewInteractive()); strings.Join(got, "\n") != strings.Join(plain, "\n") {
+		t.Fatalf("selection move reflowed the grid:\n%s", strings.Join(got, "\n"))
 	}
-	if got := plain[39]; !strings.HasPrefix(got, "two") {
-		t.Errorf("band 2 last content row = %q, want capture two", got)
-	}
+	lines = strings.Split(m.viewInteractive(), "\n")
+	assertEveryVisibleCellUsesForeground(t, lines[13], primary) // shared: band0|band1
+	assertEveryVisibleCellUsesForeground(t, lines[26], primary) // band1 bottom
+	assertEveryVisibleCellUsesForeground(t, lines[0], border)
+	assertEveryVisibleCellUsesForeground(t, lines[39], border)
 }
 
 func TestRenderInteractiveIndicatorsFrameOverflow(t *testing.T) {
@@ -387,23 +401,26 @@ func TestRenderInteractiveIndicatorsFrameOverflow(t *testing.T) {
 	if got := plain[39]; got != "" {
 		t.Errorf("bottom indicator at last = %q, want spacer", got)
 	}
-	// offset 9: bands are windows 9 (rows 1..13), 10 (rows 14..26), and the
-	// selected window 11 framed at rows 27..38.
-	for _, border := range []int{27, 38} {
-		if got := plain[border]; strings.Trim(got, "─") != "" {
-			t.Errorf("border row %d = %q, want accent rule", border, got)
+	// offset 9: bands are windows 9 (rows 1..12), 10 (rows 14..25), and the
+	// selected window 11 (rows 27..38); separators at rows 13 and 26.
+	for _, sep := range []int{13, 26} {
+		if got := plain[sep]; strings.Trim(got, "─") != "" {
+			t.Errorf("separator row %d = %q, want rule", sep, got)
 		}
 	}
-	for row := 1; row < 27; row++ {
+	for row := 1; row < 39; row++ {
+		if row == 13 || row == 26 {
+			continue
+		}
 		if strings.HasPrefix(plain[row], "─") {
-			t.Errorf("row %d unexpectedly framed", row)
+			t.Errorf("row %d unexpectedly a separator", row)
 		}
 	}
 }
 
 func TestRenderInteractiveBottomCropsContent(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
-	m.height = 36 // bands of 12 rows: framed 12 + 12 + 12
+	m.height = 36 // bands of 11, 11, 10 content rows
 	capture := make([]string, 20)
 	for i := range capture {
 		capture[i] = fmt.Sprintf("line-%02d", i)
@@ -411,10 +428,10 @@ func TestRenderInteractiveBottomCropsContent(t *testing.T) {
 	m.interactiveMod.captures[1] = strings.Join(capture, "\n")
 
 	plain := stripLines(m.viewInteractive())
-	// Band 1 occupies rows 12..23; a 12-row window over a 20-line capture
-	// keeps the tail: lines 08..19.
-	if got := plain[12]; got != "line-08" {
-		t.Errorf("first content row = %q, want line-08", got)
+	// Band 1 occupies rows 13..23; an 11-row window over a 20-line capture
+	// keeps the tail: lines 09..19.
+	if got := plain[13]; got != "line-09" {
+		t.Errorf("first content row = %q, want line-09", got)
 	}
 	if got := plain[23]; got != "line-19" {
 		t.Errorf("last content row = %q, want line-19", got)
