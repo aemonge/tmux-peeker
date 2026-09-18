@@ -103,11 +103,9 @@ func TestInteractiveExitKeysReturnToList(t *testing.T) {
 	}
 }
 
-func TestInteractiveNavigationMovesCursorAndScrolls(t *testing.T) {
+func TestInteractiveNavigationMovesCursor(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
-	// 12 windows on a 40-row screen overflow: 2 indicator rows reserved,
-	// leaving 38 rows = 3 bands of header+content.
-	m.interactiveMod.setWindows(tenPlusWindows(12), 40)
+	m.interactiveMod.setWindows(tenPlusWindows(12))
 
 	if got := m.interactiveMod.cursor; got != 0 {
 		t.Fatalf("cursor = %d, want 0", got)
@@ -118,27 +116,44 @@ func TestInteractiveNavigationMovesCursorAndScrolls(t *testing.T) {
 	if got := m.interactiveMod.cursor; got != 11 {
 		t.Fatalf("cursor = %d, want 11", got)
 	}
-	if got := m.interactiveMod.offset; got != 9 {
-		t.Fatalf("offset = %d, want 9 (cursor visible in last band)", got)
-	}
 
 	m = updateModel(t, m, runeKey("g"))
-	if m.interactiveMod.cursor != 0 || m.interactiveMod.offset != 0 {
-		t.Fatalf("after g cursor/offset = %d/%d, want 0/0", m.interactiveMod.cursor, m.interactiveMod.offset)
+	if m.interactiveMod.cursor != 0 {
+		t.Fatalf("after g cursor = %d, want 0", m.interactiveMod.cursor)
 	}
 	m = updateModel(t, m, runeKey("G"))
-	if m.interactiveMod.cursor != 11 || m.interactiveMod.offset != 9 {
-		t.Fatalf("after G cursor/offset = %d/%d, want 11/9", m.interactiveMod.cursor, m.interactiveMod.offset)
+	if m.interactiveMod.cursor != 11 {
+		t.Fatalf("after G cursor = %d, want 11", m.interactiveMod.cursor)
 	}
 	m = updateModel(t, m, runeKey("k"))
-	if m.interactiveMod.cursor != 10 || m.interactiveMod.offset != 9 {
-		t.Fatalf("after k cursor/offset = %d/%d, want 10/9 (still visible)", m.interactiveMod.cursor, m.interactiveMod.offset)
+	if m.interactiveMod.cursor != 10 {
+		t.Fatalf("after k cursor = %d, want 10", m.interactiveMod.cursor)
 	}
-	for range 2 {
-		m = updateModel(t, m, runeKey("k"))
+}
+
+func TestInteractiveDeckViewDerivesVisibilityFromCursor(t *testing.T) {
+	im := newInteractiveModel("work")
+	im.setWindows(tenPlusWindows(12))
+
+	tests := []struct {
+		cursor  int
+		visible int
+		first   int
+		count   int
+	}{
+		{cursor: 0, visible: 3, first: 0, count: 1},
+		{cursor: 1, visible: 3, first: 0, count: 2},
+		{cursor: 5, visible: 3, first: 3, count: 3},
+		{cursor: 11, visible: 3, first: 9, count: 3},
+		{cursor: 11, visible: 12, first: 0, count: 12},
 	}
-	if m.interactiveMod.cursor != 8 || m.interactiveMod.offset != 8 {
-		t.Fatalf("after kk cursor/offset = %d/%d, want 8/8 (scrolled up)", m.interactiveMod.cursor, m.interactiveMod.offset)
+	for _, tt := range tests {
+		im.cursor = tt.cursor
+		first, count := im.deckView(tt.visible)
+		if first != tt.first || count != tt.count {
+			t.Errorf("deckView(cursor=%d, visible=%d) = %d/%d, want %d/%d",
+				tt.cursor, tt.visible, first, count, tt.first, tt.count)
+		}
 	}
 }
 
@@ -151,7 +166,7 @@ func TestInteractiveVisibleBandsRespectMinimumContentRows(t *testing.T) {
 	}{
 		{"single window", 1, 40, 1},
 		{"three windows fit", 3, 40, 3},
-		{"four need the shared separators", 4, 44, 3},
+		{"four cap at three deck bands", 4, 44, 3},
 		{"five overflow reserves indicators", 5, 44, 3},
 		{"overflow minimum height", 9, 13, 1},
 		{"tiny terminal still shows one", 3, 11, 1},
@@ -168,7 +183,6 @@ func TestInteractiveVisibleBandsRespectMinimumContentRows(t *testing.T) {
 func TestInteractiveWindowLoadPreservesCursorByWindowIndex(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
 	m.interactiveMod.cursor = 2
-	m.interactiveMod.offset = 0
 
 	// Window 1 was killed outside; indexes shift down. The reload also flips
 	// the active flag, but navigation intent wins over the new active window.
@@ -287,15 +301,20 @@ func TestInteractiveSessionSurvivesRefresh(t *testing.T) {
 	}
 }
 
-func TestInteractiveCaptureCmdsCoverVisibleBandsOnly(t *testing.T) {
+func TestInteractiveCaptureCmdsCoverOnScreenWindowsOnly(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
-	m.interactiveMod.setWindows(tenPlusWindows(12), 40)
+	m.interactiveMod.setWindows(tenPlusWindows(12))
 	m.interactiveMod.cursor = 11
-	m.interactiveMod.ensureCursorVisible(40)
 
 	cmds := m.interactiveMod.captureCmds(40)
 	if len(cmds) != 3 {
-		t.Fatalf("capture cmds = %d, want 3 visible bands", len(cmds))
+		t.Fatalf("capture cmds = %d, want 3 on-screen windows", len(cmds))
+	}
+
+	// Early cursor: only the selected window is on screen; deck fills blank.
+	m.interactiveMod.cursor = 0
+	if cmds := m.interactiveMod.captureCmds(40); len(cmds) != 1 {
+		t.Fatalf("capture cmds at cursor 0 = %d, want 1", len(cmds))
 	}
 }
 
@@ -320,10 +339,11 @@ func stripLines(rendered string) []string {
 	return lines
 }
 
-func TestRenderInteractiveSteadySeparators(t *testing.T) {
+func TestRenderInteractiveDeckLayout(t *testing.T) {
 	useSolarizedTrueColor(t)
 	m := enterInteractive(t, interactiveTestModel())
 	m.width, m.height = 60, 40
+	m.interactiveMod.cursor = 2
 	m.interactiveMod.captures[0] = "zero"
 	m.interactiveMod.captures[1] = "one"
 	m.interactiveMod.captures[2] = "two"
@@ -334,93 +354,99 @@ func TestRenderInteractiveSteadySeparators(t *testing.T) {
 		t.Fatalf("rendered lines = %d, want 40", len(lines))
 	}
 
-	// Boundaries live at rows 0, 13, 26, 39; band content never moves.
-	primary := rgb{r: 7, g: 102, b: 120}  // #076678
-	border := rgb{r: 189, g: 174, b: 147} // #BDAE93
-	assertEveryVisibleCellUsesForeground(t, lines[0], primary)
-	assertEveryVisibleCellUsesForeground(t, lines[13], primary)
-	assertEveryVisibleCellUsesForeground(t, lines[26], border)
-	assertEveryVisibleCellUsesForeground(t, lines[39], border)
+	// Deck bands (rows 1..11 and 12..22), double rule (23..24), slot
+	// (25..39), indicator row on top; geometry never depends on the cursor.
+	primary := rgb{r: 7, g: 102, b: 120} // #076678
+	assertEveryVisibleCellUsesForeground(t, lines[23], primary)
+	assertEveryVisibleCellUsesForeground(t, lines[24], primary)
 
 	plain := stripLines(rendered)
 	if strings.Contains(strings.Join(plain, "\n"), "peeking") {
 		t.Fatal("band titles still rendered")
 	}
-	for _, sep := range []int{0, 13, 26, 39} {
-		if got := plain[sep]; strings.Trim(got, "─") != "" {
-			t.Errorf("separator row %d = %q, want full rule", sep, got)
+	for _, rule := range []int{23, 24} {
+		if got := plain[rule]; strings.Trim(got, "═") != "" {
+			t.Errorf("rule row %d = %q, want full double rule", rule, got)
 		}
 	}
+	// Captures bottom-anchor inside their regions: deck windows above, the
+	// selected window in the slot ending at the very bottom row.
 	for _, want := range []struct {
 		row  int
 		text string
 	}{
-		{12, "zero"}, {25, "one"}, {38, "two"},
+		{11, "zero"}, {22, "one"}, {39, "two"},
 	} {
 		if got := plain[want.row]; !strings.HasPrefix(got, want.text) {
 			t.Errorf("row %d = %q, want capture %q", want.row, got, want.text)
 		}
 	}
 
-	// Moving selection must not reflow a single row: identical plain text,
-	// only separator colors change.
+	// Steadiness: the rule never moves while the deck rolls.
 	m.interactiveMod.cursor = 1
-	if got := stripLines(m.viewInteractive()); strings.Join(got, "\n") != strings.Join(plain, "\n") {
-		t.Fatalf("selection move reflowed the grid:\n%s", strings.Join(got, "\n"))
+	rolled := stripLines(m.viewInteractive())
+	rolledLines := strings.Split(m.viewInteractive(), "\n")
+	assertEveryVisibleCellUsesForeground(t, rolledLines[23], primary)
+	assertEveryVisibleCellUsesForeground(t, rolledLines[24], primary)
+	for _, rule := range []int{23, 24} {
+		if got := rolled[rule]; strings.Trim(got, "═") != "" {
+			t.Errorf("rule row %d moved: %q", rule, got)
+		}
 	}
-	lines = strings.Split(m.viewInteractive(), "\n")
-	assertEveryVisibleCellUsesForeground(t, lines[13], primary) // shared: band0|band1
-	assertEveryVisibleCellUsesForeground(t, lines[26], primary) // band1 bottom
-	assertEveryVisibleCellUsesForeground(t, lines[0], border)
-	assertEveryVisibleCellUsesForeground(t, lines[39], border)
+	if got := rolled[39]; !strings.HasPrefix(got, "one") {
+		t.Errorf("slot after roll = %q, want capture one at the bottom", got)
+	}
 }
 
 func TestRenderInteractiveIndicatorsFrameOverflow(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
 	m.height = 40
-	m.interactiveMod.setWindows(tenPlusWindows(12), 40)
+	m.interactiveMod.setWindows(tenPlusWindows(12))
+	m.interactiveMod.cursor = 11
+	m.interactiveMod.captures[9] = "nine"
+	m.interactiveMod.captures[10] = "ten"
+	m.interactiveMod.captures[11] = "eleven"
 
 	rendered := m.viewInteractive()
 	if len(strings.Split(rendered, "\n")) != 40 {
 		t.Fatalf("rendered lines = %d, want 40", len(strings.Split(rendered, "\n")))
 	}
 	plain := stripLines(rendered)
-	if got := plain[0]; got != "" {
-		t.Errorf("top indicator at offset 0 = %q, want spacer", got)
-	}
-	if got := plain[39]; !strings.Contains(got, "↓ 9 windows below") {
-		t.Errorf("bottom indicator = %q, want ↓ 9 windows below", got)
-	}
-
-	m.interactiveMod.cursor = 11
-	m.interactiveMod.ensureCursorVisible(40)
-	plain = stripLines(m.viewInteractive())
 	if got := plain[0]; !strings.Contains(got, "↑ 9 windows above") {
 		t.Errorf("top indicator = %q, want ↑ 9 windows above", got)
 	}
-	if got := plain[39]; got != "" {
-		t.Errorf("bottom indicator at last = %q, want spacer", got)
-	}
-	// offset 9: bands are windows 9 (rows 1..12), 10 (rows 14..25), and the
-	// selected window 11 (rows 27..38); separators at rows 13 and 26.
-	for _, sep := range []int{13, 26} {
-		if got := plain[sep]; strings.Trim(got, "─") != "" {
-			t.Errorf("separator row %d = %q, want rule", sep, got)
+	for _, want := range []struct {
+		row  int
+		text string
+	}{
+		{11, "nine"}, {22, "ten"}, {39, "eleven"},
+	} {
+		if got := plain[want.row]; !strings.HasPrefix(got, want.text) {
+			t.Errorf("row %d = %q, want capture %q", want.row, got, want.text)
 		}
 	}
-	for row := 1; row < 39; row++ {
-		if row == 13 || row == 26 {
-			continue
+
+	// Early window: blank deck fills, spacer indicator, slot holds window 0.
+	m.interactiveMod.cursor = 0
+	m.interactiveMod.captures[0] = "first"
+	plain = stripLines(m.viewInteractive())
+	if got := plain[0]; got != "" {
+		t.Errorf("indicator at cursor 0 = %q, want spacer", got)
+	}
+	for row := 1; row <= 22; row++ {
+		if plain[row] != "" {
+			t.Errorf("blank deck row %d = %q, want empty fill", row, plain[row])
 		}
-		if strings.HasPrefix(plain[row], "─") {
-			t.Errorf("row %d unexpectedly a separator", row)
-		}
+	}
+	if got := plain[39]; !strings.HasPrefix(got, "first") {
+		t.Errorf("slot at cursor 0 = %q, want capture first", got)
 	}
 }
 
 func TestRenderInteractiveBottomCropsContent(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
-	m.height = 36 // bands of 11, 11, 10 content rows
+	m.height = 36 // one deck band of 13 rows, slot of 20
+	m.interactiveMod.cursor = 2
 	capture := make([]string, 20)
 	for i := range capture {
 		capture[i] = fmt.Sprintf("line-%02d", i)
@@ -428,22 +454,21 @@ func TestRenderInteractiveBottomCropsContent(t *testing.T) {
 	m.interactiveMod.captures[1] = strings.Join(capture, "\n")
 
 	plain := stripLines(m.viewInteractive())
-	// Band 1 occupies rows 13..23; an 11-row window over a 20-line capture
-	// keeps the tail: lines 09..19.
-	if got := plain[13]; got != "line-09" {
-		t.Errorf("first content row = %q, want line-09", got)
+	// The deck band (window 1) occupies rows 1..13; a 13-row window over a
+	// 20-line capture keeps the tail: lines 07..19.
+	if got := plain[1]; got != "line-07" {
+		t.Errorf("first deck row = %q, want line-07", got)
 	}
-	if got := plain[23]; got != "line-19" {
-		t.Errorf("last content row = %q, want line-19", got)
+	if got := plain[13]; got != "line-19" {
+		t.Errorf("last deck row = %q, want line-19", got)
 	}
 }
 
 func TestRenderInteractiveEveryLineMatchesWidth(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
 	m.width, m.height = 80, 40
-	m.interactiveMod.setWindows(tenPlusWindows(12), 40)
+	m.interactiveMod.setWindows(tenPlusWindows(12))
 	m.interactiveMod.cursor = 5
-	m.interactiveMod.ensureCursorVisible(40)
 
 	rendered := m.viewInteractive()
 	for i, line := range strings.Split(rendered, "\n") {
@@ -465,25 +490,24 @@ func TestInteractiveViewTooSmallFallsBackToError(t *testing.T) {
 	}
 }
 
-func TestInteractiveResizeReclampsBandOffset(t *testing.T) {
+func TestInteractiveResizeRendersWithoutStaleState(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
 	m.height = 40
-	m.interactiveMod.setWindows(tenPlusWindows(12), 40)
+	m.interactiveMod.setWindows(tenPlusWindows(12))
 	m.interactiveMod.cursor = 11
-	m.interactiveMod.ensureCursorVisible(40)
-	if m.interactiveMod.offset != 9 {
-		t.Fatalf("offset before resize = %d, want 9", m.interactiveMod.offset)
-	}
 
-	// Grow the terminal to fit every window; the stale offset must not leak
-	// into the renderer and index past the window list.
+	// Grow the terminal to fit every window; visibility is derived from the
+	// cursor so no stale scroll state can leak into the renderer.
 	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 160})
-	if m.interactiveMod.offset != 0 {
-		t.Fatalf("offset after resize = %d, want 0", m.interactiveMod.offset)
-	}
 	rendered := m.viewInteractive()
 	if len(strings.Split(rendered, "\n")) != 160 {
 		t.Fatalf("rendered lines = %d, want 160", len(strings.Split(rendered, "\n")))
+	}
+
+	m = updateModel(t, m, tea.WindowSizeMsg{Width: 120, Height: 20})
+	rendered = m.viewInteractive()
+	if len(strings.Split(rendered, "\n")) != 20 {
+		t.Fatalf("rendered lines after shrink = %d, want 20", len(strings.Split(rendered, "\n")))
 	}
 }
 
@@ -513,6 +537,7 @@ func TestInteractiveTickRefreshesWindowsAndVisibleCaptures(t *testing.T) {
 	defer tmux.SetRunner(execTmuxRunner{})
 
 	m := enterInteractive(t, interactiveTestModel())
+	m.interactiveMod.cursor = 2 // full deck: windows 0 and 1 above, 2 in the slot
 	_, cmd := m.Update(interactiveTickMsg{})
 	if cmd == nil {
 		t.Fatal("interactive tick returned nil cmd")

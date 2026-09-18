@@ -155,11 +155,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		if m.mode == modeInteractive {
-			// Re-clamp the band window so a resize never exposes rows past the
-			// window list in the renderer.
-			m.interactiveMod.ensureCursorVisible(msg.Height)
-		}
 		return m, nil
 
 	case tickMsg:
@@ -236,7 +231,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = modeList
 				return m, loadSessions
 			}
-			m.interactiveMod.setWindows(msg.windows, m.height)
+			m.interactiveMod.setWindows(msg.windows)
 			return m, m.refreshInteractiveCaptures()
 		}
 		if m.finishPendingDrill(itemWindow, msg.sessionName, 0) {
@@ -392,7 +387,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = modeInteractive
 			m.interactiveMod = newInteractiveModel(it.session.Name)
 			if cached, ok := m.tree.windowsCache[it.session.Name]; ok {
-				m.interactiveMod.setWindows(cached, m.height)
+				m.interactiveMod.setWindows(cached)
 			}
 			return m, tea.Batch(loadWindows(it.session.Name), interactiveTick(), m.refreshInteractiveCaptures())
 		}
@@ -584,13 +579,13 @@ func (m Model) updateInteractive(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case m.keyMap.Matches(contextInteractive, "up", pressed):
-		m.interactiveMod.move(-1, m.height)
+		m.interactiveMod.move(-1)
 	case m.keyMap.Matches(contextInteractive, "down", pressed):
-		m.interactiveMod.move(1, m.height)
+		m.interactiveMod.move(1)
 	case m.keyMap.Matches(contextInteractive, "first", pressed):
 		m.interactiveMod.first()
 	case m.keyMap.Matches(contextInteractive, "last", pressed):
-		m.interactiveMod.last(m.height)
+		m.interactiveMod.last()
 	default:
 		return m, nil
 	}

@@ -29,8 +29,7 @@ const (
 type interactiveModel struct {
 	session   string
 	windows   []tmux.Window
-	cursor    int            // index into windows
-	offset    int            // first visible window
+	cursor    int            // selected window; its band is always the bottom slot
 	captures  map[int]string // tmux window index -> latest capture
 	loaded    bool           // windows have been fetched at least once
 	tickCount int            // fast ticks since entry, drives window refresh
@@ -43,7 +42,7 @@ func newInteractiveModel(sessionName string) interactiveModel {
 // setWindows replaces the window list. The first load lands the cursor on
 // the session's active window (the launch window); later reloads keep the
 // cursor on the same window when it still exists and clamp otherwise.
-func (im *interactiveModel) setWindows(windows []tmux.Window, height int) {
+func (im *interactiveModel) setWindows(windows []tmux.Window) {
 	firstLoad := !im.loaded
 	previous := -1
 	if im.cursor < len(im.windows) {
@@ -70,51 +69,45 @@ func (im *interactiveModel) setWindows(windows []tmux.Window, height int) {
 	if im.cursor >= len(windows) {
 		im.cursor = max(0, len(windows)-1)
 	}
-	im.ensureCursorVisible(height)
 }
 
-// interactiveVisibleBands reports how many window bands fit in height rows
-// while keeping the minimum content rows per band and one shared separator
-// row per boundary (indicator rows replace the edges when overflowing).
+// interactiveVisibleBands reports how many window bands (deck plus slot)
+// fit in height rows while keeping the minimum content rows per deck band:
+// one indicator row, two double-rule rows, deck bands, and a 1.5x slot.
 func interactiveVisibleBands(windowCount, height int) int {
 	if windowCount <= 0 {
 		return 0
 	}
-	fit := max(1, (height-1)/(interactiveMinContentRows+1))
+	fit := max(1, (height-8)/interactiveMinContentRows)
 	return min(windowCount, fit)
 }
 
-// move shifts the cursor by delta windows, scrolling the band window when
-// the cursor crosses a visible edge.
-func (im *interactiveModel) move(delta, height int) {
+// move shifts the selection by delta windows. Visibility is derived from
+// the cursor on every render, so no scroll state needs maintaining.
+func (im *interactiveModel) move(delta int) {
 	if len(im.windows) == 0 {
 		return
 	}
 	im.cursor = min(max(im.cursor+delta, 0), len(im.windows)-1)
-	im.ensureCursorVisible(height)
 }
 
 func (im *interactiveModel) first() {
 	im.cursor = 0
-	im.offset = 0
 }
 
-func (im *interactiveModel) last(height int) {
+func (im *interactiveModel) last() {
 	im.cursor = max(0, len(im.windows)-1)
-	im.ensureCursorVisible(height)
 }
 
-// ensureCursorVisible scrolls offset so the cursor sits inside the visible
-// bands for the given terminal height.
-func (im *interactiveModel) ensureCursorVisible(height int) {
-	visible := interactiveVisibleBands(len(im.windows), height)
-	if im.cursor < im.offset {
-		im.offset = im.cursor
+// deckView returns the window indexes currently on screen: the deck bands
+// above the slot plus the selected window itself. Blank deck fills occur
+// when the cursor sits early in the list.
+func (im *interactiveModel) deckView(visible int) (first, count int) {
+	if visible <= 0 || len(im.windows) == 0 || im.cursor >= len(im.windows) {
+		return 0, 0
 	}
-	if visible > 0 && im.cursor >= im.offset+visible {
-		im.offset = im.cursor - visible + 1
-	}
-	im.offset = min(max(im.offset, 0), max(0, len(im.windows)-max(visible, 1)))
+	first = max(0, im.cursor-(visible-1))
+	return first, im.cursor - first + 1
 }
 
 // interactiveCaptureMsg carries a fresh capture for one interactive band.
@@ -136,15 +129,15 @@ func captureInteractiveWindow(sessionName string, windowIndex int) tea.Cmd {
 	}
 }
 
-// captureCmds returns capture commands for the currently visible bands.
+// captureCmds returns capture commands for the windows on screen.
 func (im *interactiveModel) captureCmds(height int) []tea.Cmd {
 	if !im.loaded || len(im.windows) == 0 || height <= 0 {
 		return nil
 	}
 	visible := interactiveVisibleBands(len(im.windows), height)
-	end := min(len(im.windows), im.offset+visible)
-	cmds := make([]tea.Cmd, 0, visible)
-	for i := im.offset; i < end; i++ {
+	first, count := im.deckView(visible)
+	cmds := make([]tea.Cmd, 0, count)
+	for i := first; i < first+count; i++ {
 		cmds = append(cmds, captureInteractiveWindow(im.session, im.windows[i].Index))
 	}
 	return cmds
@@ -158,53 +151,55 @@ func (im *interactiveModel) visibleWindow() *tmux.Window {
 	return &im.windows[im.cursor]
 }
 
-// interactiveMinimumHeight is the smallest terminal height that can show one
-// band at the minimum content size.
-const interactiveMinimumHeight = interactiveMinContentRows
+// interactiveMinimumHeight is the smallest terminal height that can show
+// the indicator row, the double rule, and one minimum-size slot.
+const interactiveMinimumHeight = interactiveMinContentRows + 3
 
-// interactiveLayout describes how the interactive view divides the screen.
-// Every band boundary carries exactly one separator row so the layout never
-// changes when selection moves; overflow trades the edge rows for
-// indicator rows.
+// interactiveLayout describes the bottom-anchored deck: deck bands above a
+// double rule and the selected window's taller slot below it. Geometry is
+// fully static; only content changes as the cursor moves.
 type interactiveLayout struct {
-	visible     int
-	bandRows    []int // content rows per visible band
-	hiddenAbove int
-	hiddenBelow int
-	overflow    bool
+	visible     int   // total bands on screen, including the slot
+	deckRows    []int // content rows per deck band, top to bottom
+	slotRows    int   // content rows for the selected slot
+	hiddenAbove int   // windows hidden beyond the top indicator
 }
 
-func computeInteractiveLayout(windowCount, offset, height int) interactiveLayout {
+func computeInteractiveLayout(windowCount, cursor, height int) interactiveLayout {
 	visible := interactiveVisibleBands(windowCount, height)
 	if visible <= 0 {
 		return interactiveLayout{}
 	}
-	layout := interactiveLayout{visible: visible, overflow: windowCount > visible}
-	reserved := 0
-	separators := visible + 1
-	if layout.overflow {
-		reserved = 2
-		separators = visible - 1
-		layout.hiddenAbove = offset
-		layout.hiddenBelow = windowCount - offset - visible
+	deckBands := visible - 1
+	layout := interactiveLayout{
+		visible:     visible,
+		hiddenAbove: max(0, cursor-deckBands),
 	}
-	available := height - reserved - separators
-	base := max(1, available/visible)
-	leftover := available % visible
-	layout.bandRows = make([]int, visible)
-	for i := range layout.bandRows {
-		layout.bandRows[i] = base
-		if i < leftover {
-			layout.bandRows[i]++
+	available := height - 3 // top indicator row plus the two-row double rule
+	if deckBands <= 0 {
+		layout.slotRows = max(1, available)
+		return layout
+	}
+	// Deck bands cost 2 size-units each, the slot 3 (about 1.5x a deck band).
+	units := 2*deckBands + 3
+	unit := available / units
+	leftover := available % units
+	layout.deckRows = make([]int, deckBands)
+	for i := range layout.deckRows {
+		layout.deckRows[i] = 2 * unit
+		if leftover > 0 {
+			layout.deckRows[i]++
+			leftover--
 		}
 	}
+	layout.slotRows = 3*unit + leftover
 	return layout
 }
 
-// renderInteractiveView paints the fullscreen multi-window view: pure
-// preview content per visible window band with no titles, divided by one
-// steady separator row per boundary. Selection only recolors the selected
-// band's adjacent separators, so moving the cursor never reflows anything.
+// renderInteractiveView paints the bottom-anchored deck: a top indicator
+// row, deck bands of unselected windows, a double rule, and the selected
+// window's taller slot. Geometry is static; moving the cursor only changes
+// which content each region carries.
 func renderInteractiveView(m *Model) string {
 	im := &m.interactiveMod
 	if !im.loaded {
@@ -213,48 +208,34 @@ func renderInteractiveView(m *Model) string {
 	if len(im.windows) == 0 {
 		return interactiveNotice("No windows in this session", m.width, m.height)
 	}
-	layout := computeInteractiveLayout(len(im.windows), im.offset, m.height)
+	layout := computeInteractiveLayout(len(im.windows), im.cursor, m.height)
 	if layout.visible == 0 {
 		return interactiveNotice("Terminal too small for the interactive view", m.width, m.height)
 	}
 
-	bandSelected := func(band int) bool {
-		return im.offset+band == im.cursor
-	}
-
 	lines := make([]string, 0, m.height)
-	if layout.overflow {
-		lines = append(lines, interactiveIndicatorRow(layout.hiddenAbove, "above", m.width))
-	} else {
-		lines = append(lines, interactiveSeparatorRow(bandSelected(0), m.width))
-	}
-	for i := 0; i < layout.visible; i++ {
-		content := im.captures[im.windows[im.offset+i].Index]
-		lines = append(lines, strings.Split(renderPreview(content, m.width, layout.bandRows[i]), "\n")...)
-		switch {
-		case i == layout.visible-1 && !layout.overflow:
-			lines = append(lines, interactiveSeparatorRow(bandSelected(i), m.width))
-		case i < layout.visible-1:
-			// Shared boundary: bright when either neighbor is selected.
-			lines = append(lines, interactiveSeparatorRow(bandSelected(i) || bandSelected(i+1), m.width))
+	lines = append(lines, interactiveIndicatorRow(layout.hiddenAbove, "above", m.width))
+	deckBands := len(layout.deckRows)
+	for b := 0; b < deckBands; b++ {
+		windowIdx := im.cursor - deckBands + b
+		content := ""
+		if windowIdx >= 0 {
+			content = im.captures[im.windows[windowIdx].Index]
 		}
+		lines = append(lines, strings.Split(renderPreview(content, m.width, layout.deckRows[b]), "\n")...)
 	}
-	if layout.overflow {
-		lines = append(lines, interactiveIndicatorRow(layout.hiddenBelow, "below", m.width))
-	}
+	rule := interactiveDoubleRule(m.width)
+	lines = append(lines, rule, rule)
+	lines = append(lines, strings.Split(renderPreview(im.captures[im.windows[im.cursor].Index], m.width, layout.slotRows), "\n")...)
 	return fixedBox(strings.Join(lines, "\n"), m.width, m.height)
 }
 
-// interactiveSeparatorRow renders one band boundary. Bright separators use
-// the theme's primary color; quiet ones use the theme's border color.
-func interactiveSeparatorRow(bright bool, width int) string {
-	color := colorBorder
-	if bright {
-		color = colorPrimary
-	}
+// interactiveDoubleRule renders one row of the classic double rule that
+// separates the deck from the selected slot.
+func interactiveDoubleRule(width int) string {
 	return lipgloss.NewStyle().
-		Foreground(color).
-		Render(strings.Repeat("─", width))
+		Foreground(colorPrimary).
+		Render(strings.Repeat("═", width))
 }
 
 // interactiveIndicatorRow renders a dim overflow indicator; a count of zero
