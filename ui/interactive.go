@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/aemonge/tmux-peeker/tmux"
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,19 +14,28 @@ const (
 	// interactiveMinContentRows is the smallest number of live content rows a
 	// band may show before windows overflow into indicator rows instead.
 	interactiveMinContentRows = 10
-	interactiveHeaderRows     = 1
+	// interactiveRefreshInterval is the grid's dedicated capture cadence,
+	// decoupled from the picker's slower session tick.
+	interactiveRefreshInterval = 200 * time.Millisecond
+	// interactiveWindowRefreshTicks refreshes the window list every N fast
+	// ticks (about 2 s at the default cadence).
+	interactiveWindowRefreshTicks = 10
+	// interactiveHeaderRows is removed with titles in a later step; kept as
+	// the interim per-band header cost.
+	interactiveHeaderRows = 1
 )
 
 // interactiveModel drives the fullscreen multi-window session view: equal
 // horizontal bands, one per window in index order, navigable with the
 // list-style keys.
 type interactiveModel struct {
-	session  string
-	windows  []tmux.Window
-	cursor   int            // index into windows
-	offset   int            // first visible window
-	captures map[int]string // tmux window index -> latest capture
-	loaded   bool           // windows have been fetched at least once
+	session   string
+	windows   []tmux.Window
+	cursor    int            // index into windows
+	offset    int            // first visible window
+	captures  map[int]string // tmux window index -> latest capture
+	loaded    bool           // windows have been fetched at least once
+	tickCount int            // fast ticks since entry, drives window refresh
 }
 
 func newInteractiveModel(sessionName string) interactiveModel {
@@ -146,8 +156,8 @@ func (im *interactiveModel) visibleWindow() *tmux.Window {
 }
 
 // interactiveMinimumHeight is the smallest terminal height that can show one
-// band (header plus minimum content rows).
-const interactiveMinimumHeight = interactiveHeaderRows + interactiveMinContentRows
+// band at the minimum content size.
+const interactiveMinimumHeight = interactiveMinContentRows
 
 // interactiveLayout describes how the interactive view divides the screen.
 // When windows overflow, two stable indicator rows frame the bands so band

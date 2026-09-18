@@ -72,6 +72,15 @@ func tick() tea.Cmd {
 	})
 }
 
+// interactiveTickMsg drives the grid's dedicated fast capture cadence.
+type interactiveTickMsg time.Time
+
+func interactiveTick() tea.Cmd {
+	return tea.Tick(interactiveRefreshInterval, func(t time.Time) tea.Msg {
+		return interactiveTickMsg(t)
+	})
+}
+
 type sessionsLoadedMsg struct {
 	sessions []tmux.Session
 	err      error
@@ -90,6 +99,7 @@ type previewLoadedMsg struct {
 type windowsLoadedMsg struct {
 	sessionName string
 	windows     []tmux.Window
+	err         error
 }
 
 type panesLoadedMsg struct {
@@ -100,8 +110,8 @@ type panesLoadedMsg struct {
 
 func loadWindows(sessionName string) tea.Cmd {
 	return func() tea.Msg {
-		windows, _ := tmux.ListWindows(sessionName)
-		return windowsLoadedMsg{sessionName: sessionName, windows: windows}
+		windows, err := tmux.ListWindows(sessionName)
+		return windowsLoadedMsg{sessionName: sessionName, windows: windows, err: err}
 	}
 }
 
@@ -153,13 +163,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		cmds := []tea.Cmd{loadSessions, tick()}
 		if m.mode == modeInteractive {
-			// Keep the band set and live captures fresh; skip picker-only work.
-			cmds = append(cmds, loadWindows(m.interactiveMod.session))
-			cmds = append(cmds, m.interactiveMod.captureCmds(m.height)...)
-			return m, tea.Batch(cmds...)
+			// The grid runs its own fast tick; keep the picker loop alive but
+			// skip its session-list work while the grid owns the screen.
+			return m, tick()
 		}
+		cmds := []tea.Cmd{loadSessions, tick()}
 		if it := m.currentItem(); it != nil {
 			cmds = append(cmds, refreshPreview(previewKeyForItem(*it)))
 		}
@@ -204,12 +213,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case interactiveTickMsg:
+		if m.mode != modeInteractive {
+			return m, nil
+		}
+		m.interactiveMod.tickCount++
+		cmds := m.interactiveMod.captureCmds(m.height)
+		if m.interactiveMod.tickCount%interactiveWindowRefreshTicks == 0 {
+			cmds = append(cmds, loadWindows(m.interactiveMod.session))
+		}
+		cmds = append(cmds, interactiveTick())
+		return m, tea.Batch(cmds...)
+
 	case windowsLoadedMsg:
 		selected := m.currentIdentity()
 		m.tree.windowsCache[msg.sessionName] = msg.windows
 		m.rebuildItems()
 		m.restoreIdentity(selected)
 		if m.mode == modeInteractive && m.interactiveMod.session == msg.sessionName {
+			if msg.err != nil {
+				// The session died outside; fall back to the picker.
+				m.mode = modeList
+				return m, loadSessions
+			}
 			m.interactiveMod.setWindows(msg.windows, m.height)
 			return m, m.refreshInteractiveCaptures()
 		}
@@ -368,7 +394,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if cached, ok := m.tree.windowsCache[it.session.Name]; ok {
 				m.interactiveMod.setWindows(cached, m.height)
 			}
-			return m, tea.Batch(loadWindows(it.session.Name), m.refreshInteractiveCaptures())
+			return m, tea.Batch(loadWindows(it.session.Name), interactiveTick(), m.refreshInteractiveCaptures())
 		}
 	case m.keyMap.Matches(contextList, "create", pressed):
 		m.mode = modeCreate
@@ -550,7 +576,7 @@ func (m Model) updateInteractive(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch pressed := key.String(); {
 	case m.keyMap.Matches(contextInteractive, "exit", pressed):
 		m.mode = modeList
-		return m, nil
+		return m, loadSessions
 	case m.keyMap.Matches(contextInteractive, "attach", pressed):
 		if w := m.interactiveMod.visibleWindow(); w != nil {
 			m.attachTarget = previewKey{session: m.interactiveMod.session, window: w.Index, pane: -1}

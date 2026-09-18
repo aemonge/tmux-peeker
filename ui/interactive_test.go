@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -216,15 +217,17 @@ func TestInteractiveCaptureMsgUpdatesVisibleBand(t *testing.T) {
 
 func TestInteractiveExitsWhenSessionDies(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
-	m = updateModel(t, m, sessionsLoadedMsg{sessions: []tmux.Session{{Name: "other"}}})
+	m = updateModel(t, m, windowsLoadedMsg{sessionName: "work", err: errSessionGone})
 	if m.mode != modeList {
 		t.Fatalf("mode after session death = %v, want modeList", m.mode)
 	}
 }
 
+var errSessionGone = errors.New("can't find session: work")
+
 func TestInteractiveSessionSurvivesRefresh(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
-	m = updateModel(t, m, sessionsLoadedMsg{sessions: []tmux.Session{{Name: "work"}, {Name: "other"}}})
+	m = updateModel(t, m, windowsLoadedMsg{sessionName: "work", windows: tenPlusWindows(3)})
 	if m.mode != modeInteractive {
 		t.Fatalf("mode after refresh = %v, want modeInteractive", m.mode)
 	}
@@ -364,13 +367,13 @@ func TestRenderInteractiveEveryLineMatchesWidth(t *testing.T) {
 
 func TestInteractiveViewTooSmallFallsBackToError(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
-	m.width, m.height = 80, 10
+	m.width, m.height = 80, 9
 	rendered := m.viewInteractive()
 	if !strings.Contains(ansi.Strip(rendered), "Terminal too small") {
 		t.Fatalf("small terminal fallback missing message:\n%s", rendered)
 	}
-	if len(strings.Split(rendered, "\n")) != 10 {
-		t.Fatal("small terminal fallback does not fill exactly 10 rows")
+	if len(strings.Split(rendered, "\n")) != 9 {
+		t.Fatal("small terminal fallback does not fill exactly 9 rows")
 	}
 }
 
@@ -444,17 +447,17 @@ func TestInteractiveTickRefreshesWindowsAndVisibleCaptures(t *testing.T) {
 	defer tmux.SetRunner(execTmuxRunner{})
 
 	m := enterInteractive(t, interactiveTestModel())
-	_, cmd := m.Update(tickMsg{})
+	_, cmd := m.Update(interactiveTickMsg{})
 	if cmd == nil {
-		t.Fatal("tick returned nil cmd")
+		t.Fatal("interactive tick returned nil cmd")
 	}
 	batch, ok := cmd().(tea.BatchMsg)
 	if !ok {
-		t.Fatalf("tick cmd produced %T, want tea.BatchMsg", cmd())
+		t.Fatalf("interactive tick produced %T, want tea.BatchMsg", cmd())
 	}
 
 	captured := map[int]bool{}
-	sawWindowsLoad := false
+	sawTick := false
 	for _, c := range batch {
 		switch value := c().(type) {
 		case interactiveCaptureMsg:
@@ -462,22 +465,82 @@ func TestInteractiveTickRefreshesWindowsAndVisibleCaptures(t *testing.T) {
 				t.Errorf("capture session = %q, want work", value.session)
 			}
 			captured[value.window] = true
+		case interactiveTickMsg:
+			sawTick = true
 		case windowsLoadedMsg:
-			sawWindowsLoad = true
-			if value.sessionName != "work" {
-				t.Errorf("windows load session = %q, want work", value.sessionName)
-			}
+			t.Error("early fast tick refreshed the window list")
 		}
 	}
-	if !sawWindowsLoad {
-		t.Error("tick batch did not refresh the window list")
+	if !sawTick {
+		t.Error("fast tick did not schedule its successor")
 	}
 	for _, want := range []int{0, 1, 2} {
 		if !captured[want] {
-			t.Errorf("tick batch did not capture visible window %d", want)
+			t.Errorf("fast tick did not capture visible window %d", want)
 		}
 	}
 	if len(captured) != 3 {
 		t.Errorf("captured windows = %v, want exactly the 3 visible bands", captured)
+	}
+}
+
+func TestInteractiveWindowListRefreshesPeriodically(t *testing.T) {
+	tmux.SetRunner(stubTmuxRunner{})
+	defer tmux.SetRunner(execTmuxRunner{})
+
+	m := enterInteractive(t, interactiveTestModel())
+	for range interactiveWindowRefreshTicks - 1 {
+		m = updateModel(t, m, interactiveTickMsg{})
+	}
+	_, cmd := m.Update(interactiveTickMsg{})
+	batch, ok := cmd().(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("tick %d produced %T, want tea.BatchMsg", interactiveWindowRefreshTicks, cmd())
+	}
+	sawWindowsLoad := false
+	for _, c := range batch {
+		if _, isWindows := c().(windowsLoadedMsg); isWindows {
+			sawWindowsLoad = true
+		}
+	}
+	if !sawWindowsLoad {
+		t.Fatal("periodic fast tick did not refresh the window list")
+	}
+}
+
+func TestInteractiveFastTickStopsAfterExit(t *testing.T) {
+	m := enterInteractive(t, interactiveTestModel())
+	m = updateModel(t, m, runeKey("i")) // exit
+	_, cmd := m.Update(interactiveTickMsg{})
+	if cmd != nil {
+		t.Fatal("stale fast tick still produced work after exit")
+	}
+}
+
+func TestGlobalTickSkipsSessionsWhileInteractive(t *testing.T) {
+	tmux.SetRunner(stubTmuxRunner{})
+	defer tmux.SetRunner(execTmuxRunner{})
+
+	m := enterInteractive(t, interactiveTestModel())
+	_, cmd := m.Update(tickMsg{})
+	if cmd == nil {
+		t.Fatal("global tick returned nil cmd, want picker loop kept alive")
+	}
+	if _, isTick := cmd().(tickMsg); !isTick {
+		t.Fatalf("global tick cmd produced %T, want only the picker loop", cmd())
+	}
+}
+
+func TestInteractiveExitRefreshesPickerSessions(t *testing.T) {
+	tmux.SetRunner(stubTmuxRunner{})
+	defer tmux.SetRunner(execTmuxRunner{})
+
+	m := enterInteractive(t, interactiveTestModel())
+	_, cmd := m.Update(runeKey("esc"))
+	if cmd == nil {
+		t.Fatal("exit returned nil cmd, want loadSessions")
+	}
+	if _, ok := cmd().(sessionsLoadedMsg); !ok {
+		t.Fatalf("exit cmd produced %T, want sessionsLoadedMsg", cmd())
 	}
 }
