@@ -11,7 +11,7 @@ func TestParseWindowLine(t *testing.T) {
 	}{
 		{
 			name: "active window",
-			line: "0|editor|1",
+			line: "0|editor|1|nvim",
 			check: func(t *testing.T, w Window) {
 				if w.Index != 0 {
 					t.Errorf("Index = %d, want 0", w.Index)
@@ -22,11 +22,32 @@ func TestParseWindowLine(t *testing.T) {
 				if !w.Active {
 					t.Error("Active = false, want true")
 				}
+				if w.ActiveCommand != "nvim" {
+					t.Errorf("ActiveCommand = %q, want nvim", w.ActiveCommand)
+				}
+			},
+		},
+		{
+			name: "inactive window with empty command",
+			line: "3|shell|0|",
+			check: func(t *testing.T, w Window) {
+				if w.ActiveCommand != "" {
+					t.Errorf("ActiveCommand = %q, want empty", w.ActiveCommand)
+				}
+			},
+		},
+		{
+			name: "command containing pipe character",
+			line: "1|logs|0|grep foo|bar",
+			check: func(t *testing.T, w Window) {
+				if w.ActiveCommand != "grep foo|bar" {
+					t.Errorf("ActiveCommand = %q, want %q", w.ActiveCommand, "grep foo|bar")
+				}
 			},
 		},
 		{
 			name: "inactive window with spaces in name",
-			line: "2|build watch|0",
+			line: "2|build watch|0|make watch",
 			check: func(t *testing.T, w Window) {
 				if w.Name != "build watch" {
 					t.Errorf("Name = %q, want %q", w.Name, "build watch")
@@ -39,6 +60,11 @@ func TestParseWindowLine(t *testing.T) {
 		{
 			name:    "too few fields",
 			line:    "0|editor",
+			wantErr: true,
+		},
+		{
+			name:    "missing command field",
+			line:    "0|editor|1",
 			wantErr: true,
 		},
 		{
@@ -132,7 +158,7 @@ func TestParsePaneLine(t *testing.T) {
 
 func TestListWindowsWithMock(t *testing.T) {
 	withMock(t, func(m *mockRunner) {
-		out := "0|editor|1\n1|server|0\n2|logs|0"
+		out := "0|editor|1|nvim\n1|server|0|go run\n2|logs|0|tail"
 		m.OnOutput([]byte(out), nil, "tmux", "list-windows", "-t", "my-session", "-F", windowListFormat)
 
 		windows, err := ListWindows("my-session")
@@ -159,7 +185,7 @@ func TestListWindowsWithMock(t *testing.T) {
 func TestListWindowsSortsByIndex(t *testing.T) {
 	withMock(t, func(m *mockRunner) {
 		// tmux returns out-of-order (unlikely but defensive)
-		out := "2|c|0\n0|a|1\n1|b|0"
+		out := "2|c|0|zsh\n0|a|1|nvim\n1|b|0|make"
 		m.OnOutput([]byte(out), nil, "tmux", "list-windows", "-t", "s", "-F", windowListFormat)
 
 		windows, err := ListWindows("s")

@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	windowListFormat = "#{window_index}|#{window_name}|#{window_active}"
+	windowListFormat = "#{window_index}|#{window_name}|#{window_active}|#{pane_current_command}"
 	paneListFormat   = "#{pane_index}|#{pane_current_command}|#{pane_active}|#{pane_width}|#{pane_height}"
 )
 
@@ -93,8 +93,8 @@ func ListPanes(sessionName string, windowIndex int) ([]Pane, error) {
 }
 
 func parseWindowLine(line string) (Window, error) {
-	parts := strings.SplitN(line, "|", 3)
-	if len(parts) < 3 {
+	parts := strings.SplitN(line, "|", 4)
+	if len(parts) < 4 {
 		return Window{}, fmt.Errorf("unexpected format: %s", line)
 	}
 
@@ -105,9 +105,10 @@ func parseWindowLine(line string) (Window, error) {
 	active, _ := strconv.Atoi(parts[2])
 
 	return Window{
-		Index:  index,
-		Name:   parts[1],
-		Active: active > 0,
+		Index:         index,
+		Name:          parts[1],
+		Active:        active > 0,
+		ActiveCommand: parts[3],
 	}, nil
 }
 

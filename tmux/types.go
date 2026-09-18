@@ -21,10 +21,11 @@ type Session struct {
 
 // Window represents a single tmux window inside a session.
 type Window struct {
-	Index  int
-	Name   string
-	Active bool
-	Panes  []Pane // nil until enumerated via ListPanes
+	Index         int
+	Name          string
+	Active        bool
+	ActiveCommand string // current command of the active pane, empty when none
+	Panes         []Pane // nil until enumerated via ListPanes
 }
 
 // Pane represents a single tmux pane inside a window.
