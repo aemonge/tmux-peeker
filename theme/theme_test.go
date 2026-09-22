@@ -203,7 +203,7 @@ func TestProductionGoFilesDoNotHardCodeHexColors(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == "vendor") {
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == "vendor" || entry.Name() == ".tmp") {
 			return filepath.SkipDir
 		}
 		if entry.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {

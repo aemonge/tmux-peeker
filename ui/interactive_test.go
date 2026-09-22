@@ -182,10 +182,12 @@ func TestInteractiveVisibleBandsRespectMinimumContentRows(t *testing.T) {
 	}{
 		{"single window", 1, 40, 1},
 		{"three windows fit", 3, 40, 3},
-		{"four equal bands fit", 4, 44, 4},
+		{"four bands fit", 4, 44, 4},
 		{"five cap at four bands", 5, 44, 4},
-		{"overflow minimum height", 9, 13, 1},
-		{"tiny terminal still shows one", 3, 11, 1},
+		{"six fit tall terminal", 6, 60, 6},
+		{"hero only at minimum height", 9, 14, 1},
+		{"below minimum shows none", 9, 13, 0},
+		{"tiny terminal shows none", 3, 11, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -370,21 +372,23 @@ func TestRenderInteractiveDeckLayout(t *testing.T) {
 		t.Fatalf("rendered lines = %d, want 40", len(lines))
 	}
 
-	// Equal deck bands (rows 1..13 and 14..26), one double-rule row (27),
-	// slot (28..39), indicator row on top; geometry never depends on the
-	// cursor.
-	primary := rgb{r: 7, g: 102, b: 120} // #076678
-	assertEveryVisibleCellUsesForeground(t, lines[27], primary)
+	// Deck bands (rows 1..13 and 15..26), labeled queue rule (14), hero
+	// header (27), fixed 12-row hero (28..39) ending at the bottom edge;
+	// every leftover row is divided into the bands — no blank rows at the
+	// top. Geometry never depends on the cursor.
+	green := rgb{r: 121, g: 116, b: 14} // #79740E
+	assertRuleColors(t, lines[14], green)
+	assertRuleColors(t, lines[27], green)
 
 	plain := stripLines(rendered)
-	if strings.Contains(strings.Join(plain, "\n"), "peeking") {
-		t.Fatal("band titles still rendered")
+	if got := plain[14]; !strings.Contains(got, "1:server") {
+		t.Errorf("queue rule = %q, want header for band below (1:server)", got)
 	}
-	if got := plain[27]; strings.Trim(got, "═") != "" {
-		t.Errorf("rule row 27 = %q, want full double rule", got)
+	if got := plain[27]; !strings.Contains(got, "2:logs") {
+		t.Errorf("hero header = %q, want 2:logs", got)
 	}
 	// Captures bottom-anchor inside their regions: deck windows above, the
-	// selected window in the slot ending at the very bottom row.
+	// selected window ending on the screen's last row.
 	for _, want := range []struct {
 		row  int
 		text string
@@ -396,16 +400,18 @@ func TestRenderInteractiveDeckLayout(t *testing.T) {
 		}
 	}
 
-	// Steadiness: the rule never moves while the deck rolls.
+	// Steadiness: the rules never move while the deck rolls.
 	m.interactiveMod.cursor = 1
-	rolled := stripLines(m.viewInteractive())
-	rolledLines := strings.Split(m.viewInteractive(), "\n")
-	assertEveryVisibleCellUsesForeground(t, rolledLines[27], primary)
-	if got := rolled[27]; strings.Trim(got, "═") != "" {
-		t.Errorf("rule row 27 moved: %q", got)
+	rolled := m.viewInteractive()
+	rolledLines := strings.Split(rolled, "\n")
+	assertRuleColors(t, rolledLines[14], green)
+	assertRuleColors(t, rolledLines[27], green)
+	rolledPlain := stripLines(rolled)
+	if got := rolledPlain[27]; !strings.Contains(got, "1:server") {
+		t.Errorf("hero header after roll = %q, want 1:server", got)
 	}
-	if got := rolled[39]; !strings.HasPrefix(got, "one") {
-		t.Errorf("slot after roll = %q, want capture one at the bottom", got)
+	if got := rolledPlain[39]; !strings.HasPrefix(got, "one") {
+		t.Errorf("hero after roll = %q, want capture one on the bottom row", got)
 	}
 }
 
@@ -451,13 +457,13 @@ func TestRenderInteractiveIndicatorsFrameOverflow(t *testing.T) {
 		t.Errorf("cyclic deck row 26 = %q, want capture eleven", got)
 	}
 	if got := plain[39]; !strings.HasPrefix(got, "first") {
-		t.Errorf("slot at cursor 0 = %q, want capture first", got)
+		t.Errorf("hero at cursor 0 = %q, want capture first", got)
 	}
 }
 
 func TestRenderInteractiveBottomCropsContent(t *testing.T) {
 	m := enterInteractive(t, interactiveTestModel())
-	m.height = 36 // equal bands: 12, 11, 11 content rows
+	m.height = 36 // deck bands of 11 and 10 rows, hero 12
 	m.interactiveMod.cursor = 2
 	capture := make([]string, 20)
 	for i := range capture {
@@ -466,12 +472,12 @@ func TestRenderInteractiveBottomCropsContent(t *testing.T) {
 	m.interactiveMod.captures[1] = strings.Join(capture, "\n")
 
 	plain := stripLines(m.viewInteractive())
-	// The lower deck band (window 1) occupies rows 13..23; an 11-row window
-	// over a 20-line capture keeps the tail: lines 09..19.
-	if got := plain[13]; got != "line-09" {
-		t.Errorf("first deck row = %q, want line-09", got)
+	// The lower deck band (window 1) occupies rows 13..22; a 10-row window
+	// over a 20-line capture keeps the tail: lines 10..19.
+	if got := plain[13]; got != "line-10" {
+		t.Errorf("first deck row = %q, want line-10", got)
 	}
-	if got := plain[23]; got != "line-19" {
+	if got := plain[22]; got != "line-19" {
 		t.Errorf("last deck row = %q, want line-19", got)
 	}
 }
@@ -645,5 +651,38 @@ func TestInteractiveExitRefreshesPickerSessions(t *testing.T) {
 	}
 	if _, ok := cmd().(sessionsLoadedMsg); !ok {
 		t.Fatalf("exit cmd produced %T, want sessionsLoadedMsg", cmd())
+	}
+}
+
+func TestInteractiveLayoutLeavesNoOrphanBlankRows(t *testing.T) {
+	// With deck bands on screen the layout must consume the height
+	// exactly: every row belongs to the indicator, a rule, a band, or the
+	// hero — no leftover blank strip can hide at the top.
+	for windowCount := 2; windowCount <= 12; windowCount++ {
+		for height := 14; height <= 60; height++ {
+			layout := computeInteractiveLayout(windowCount, 0, height)
+			if layout.visible == 0 {
+				continue
+			}
+			if len(layout.deckRows) == 0 {
+				continue // hero-only: slack above the header is inherent
+			}
+			if layout.slackRows != 0 {
+				t.Fatalf("windows=%d height=%d slack=%d, want 0",
+					windowCount, height, layout.slackRows)
+			}
+			sum := 0
+			for _, rows := range layout.deckRows {
+				if rows < queueMinRows {
+					t.Fatalf("windows=%d height=%d band=%d below minimum",
+						windowCount, height, rows)
+				}
+				sum += rows
+			}
+			if want := height - heroRows - len(layout.deckRows) - 1; sum != want {
+				t.Fatalf("windows=%d height=%d deck rows=%d, want %d",
+					windowCount, height, sum, want)
+			}
+		}
 	}
 }

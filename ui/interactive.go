@@ -11,10 +11,11 @@ import (
 )
 
 const (
-	// interactiveMinContentRows is the smallest number of live content rows a
-	// band may show before windows overflow into indicator rows instead.
-	// The selected band additionally pays two border rows from its budget.
-	interactiveMinContentRows = 10
+	// heroRows is the fixed content height of the selected window's band.
+	heroRows = 12
+	// queueMinRows is the deck-band floor. Above it, every leftover row is
+	// divided into the bands — no ceiling, no orphan blank rows at the top.
+	queueMinRows = 8
 	// interactiveRefreshInterval is the grid's dedicated capture cadence,
 	// decoupled from the picker's slower session tick.
 	interactiveRefreshInterval = 200 * time.Millisecond
@@ -71,15 +72,21 @@ func (im *interactiveModel) setWindows(windows []tmux.Window) {
 	}
 }
 
-// interactiveVisibleBands reports how many equal window bands (deck plus
-// slot) fit in height rows while keeping the minimum content rows per
-// band: one indicator row and one double-rule row of chrome.
+// interactiveVisibleBands reports how many window bands fit in height
+// rows: one fixed hero band plus as many deck bands as fit while keeping
+// queueMinRows of content each. Below the hero-only minimum it reports 0.
 func interactiveVisibleBands(windowCount, height int) int {
-	if windowCount <= 0 {
+	if windowCount <= 0 || height < interactiveMinimumHeight {
 		return 0
 	}
-	fit := max(1, (height-2)/interactiveMinContentRows)
-	return min(windowCount, fit)
+	fit := 0
+	for n := 1; n < windowCount; n++ {
+		if (queueMinRows+1)*n+heroRows+2 > height {
+			break
+		}
+		fit = n
+	}
+	return fit + 1
 }
 
 // move shifts the selection by delta windows, cycling past either end.
@@ -158,16 +165,18 @@ func (im *interactiveModel) visibleWindow() *tmux.Window {
 }
 
 // interactiveMinimumHeight is the smallest terminal height that can show
-// the indicator row, the double rule, and one minimum-size band.
-const interactiveMinimumHeight = interactiveMinContentRows + 2
+// the indicator row, the hero header rule, and the fixed 12-row hero band.
+const interactiveMinimumHeight = heroRows + 2
 
-// interactiveLayout describes the bottom-anchored deck: equal deck bands
-// above one double-rule row and the selected window's band below it.
-// Geometry is fully static; only content changes as the cursor moves.
+// interactiveLayout describes the bottom-anchored deck: deck bands sharing
+// every leftover row above the hero block (header rule plus fixed heroRows
+// of capture). Geometry is fully static; only content changes as the cursor
+// moves.
 type interactiveLayout struct {
-	visible     int   // total bands on screen, including the slot
+	visible     int   // total bands on screen, including the hero
 	deckRows    []int // content rows per deck band, top to bottom
-	slotRows    int   // content rows for the selected band
+	slotRows    int   // content rows for the hero band; always heroRows
+	slackRows   int   // spare rows above the hero header (hero-only mode)
 	hiddenAbove int   // windows hidden beyond the top indicator
 }
 
@@ -178,15 +187,21 @@ func computeInteractiveLayout(windowCount, cursor, height int) interactiveLayout
 	}
 	deckBands := visible - 1
 	layout := interactiveLayout{
-		visible: visible,
+		visible:  visible,
+		slotRows: heroRows,
 		// The cyclic deck hides a constant count: every window not on screen.
 		hiddenAbove: max(0, windowCount-visible),
 	}
-	// Every band is equal: the indicator row plus the single rule row are
-	// the only chrome; leftover rows fall to earlier bands, the slot last.
-	available := height - 2
-	base := max(1, available/visible)
-	leftover := available % visible
+	if deckBands == 0 {
+		layout.slackRows = height - heroRows - 2
+		return layout
+	}
+	// Every leftover row is divided into the deck bands: with bands on
+	// screen the layout consumes the height exactly, so no orphan blank
+	// rows can appear at the top.
+	budget := height - heroRows - deckBands - 1
+	base := budget / deckBands
+	leftover := budget % deckBands
 	layout.deckRows = make([]int, deckBands)
 	for i := range layout.deckRows {
 		layout.deckRows[i] = base
@@ -195,14 +210,14 @@ func computeInteractiveLayout(windowCount, cursor, height int) interactiveLayout
 			leftover--
 		}
 	}
-	layout.slotRows = base + leftover
 	return layout
 }
 
 // renderInteractiveView paints the bottom-anchored deck: a top indicator
-// row, equal deck bands of unselected windows, one double-rule row, and the
-// selected window's band. Geometry is static; moving the cursor only
-// changes which content each region carries.
+// row, deck bands of unselected windows behind labeled dot rules, and the
+// hero block — header rule over fixed heroRows of capture reaching the
+// bottom edge. Geometry is static; moving the cursor only changes which
+// content each region carries.
 func renderInteractiveView(m *Model) string {
 	im := &m.interactiveMod
 	if !im.loaded {
@@ -216,29 +231,34 @@ func renderInteractiveView(m *Model) string {
 		return interactiveNotice("Terminal too small for the interactive view", m.width, m.height)
 	}
 
+	blank := strings.Repeat(" ", m.width)
 	lines := make([]string, 0, m.height)
 	lines = append(lines, interactiveIndicatorRow(layout.hiddenAbove, "above", m.width))
+	for i := 0; i < layout.slackRows; i++ {
+		lines = append(lines, blank)
+	}
 	deckBands := len(layout.deckRows)
 	n := len(im.windows)
 	for b := 0; b < deckBands; b++ {
 		// Cyclic fill: bands above an early selection wrap to the list tail,
-		// so no band ever renders blank.
+		// so no band ever renders blank. Every rule is a header for the
+		// band directly below it.
 		windowIdx := ((im.cursor-deckBands+b)%n + n) % n
+		if b > 0 {
+			lines = append(lines, queueRule(m.width, windowRuleLabel(im.windows[windowIdx])))
+		}
 		content := im.captures[im.windows[windowIdx].Index]
 		lines = append(lines, strings.Split(renderPreview(content, m.width, layout.deckRows[b]), "\n")...)
 	}
-	rule := interactiveDoubleRule(m.width)
-	lines = append(lines, rule)
-	lines = append(lines, strings.Split(renderPreview(im.captures[im.windows[im.cursor].Index], m.width, layout.slotRows), "\n")...)
+	selected := im.windows[im.cursor]
+	lines = append(lines, heroHeaderRule(m.width, windowRuleLabel(selected)))
+	lines = append(lines, strings.Split(renderPreview(im.captures[selected.Index], m.width, layout.slotRows), "\n")...)
 	return fixedBox(strings.Join(lines, "\n"), m.width, m.height)
 }
 
-// interactiveDoubleRule renders one row of the classic double rule that
-// separates the deck from the selected slot.
-func interactiveDoubleRule(width int) string {
-	return lipgloss.NewStyle().
-		Foreground(colorPrimary).
-		Render(strings.Repeat("═", width))
+// windowRuleLabel names a window the way the tree does: index:name.
+func windowRuleLabel(w tmux.Window) string {
+	return fmt.Sprintf("%d:%s", w.Index, w.Name)
 }
 
 // interactiveIndicatorRow renders a dim overflow indicator; a count of zero
