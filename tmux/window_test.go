@@ -257,6 +257,30 @@ func TestRenameWindowRunsRenameWindowCommand(t *testing.T) {
 	})
 }
 
+func TestKillWindowWithMock(t *testing.T) {
+	withMock(t, func(m *mockRunner) {
+		if err := KillWindow("work", 2); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := "tmux kill-window -t work:2"
+		if len(m.runs) != 1 || m.runs[0] != want {
+			t.Errorf("run calls = %q, want [%q]", m.runs, want)
+		}
+	})
+}
+
+func TestKillPaneWithMock(t *testing.T) {
+	withMock(t, func(m *mockRunner) {
+		if err := KillPane("work", 2, 1); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := "tmux kill-pane -t work:2.1"
+		if len(m.runs) != 1 || m.runs[0] != want {
+			t.Errorf("run calls = %q, want [%q]", m.runs, want)
+		}
+	})
+}
+
 func TestListWindowsEmpty(t *testing.T) {
 	withMock(t, func(m *mockRunner) {
 		m.OnOutput([]byte(""), nil, "tmux", "list-windows", "-t", "empty", "-F", windowListFormat)

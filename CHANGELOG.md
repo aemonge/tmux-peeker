@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Kill windows and panes from the tree: the kill key now opens its confirmation on every row kind, dispatching `tmux kill-window` / `kill-pane` for the exact `session:window[.pane]` target and refreshing the affected level — including falling back to a session refresh when a final pane or window takes its parent down with it.
 - Interactive window deck: `i` on any row opens a fullscreen bottom-anchored deck of that session's windows — live bottom-cropped captures on a dedicated ~200 ms tick, the session's active window preselected in a fixed 12-row hero band opened by a bold success-green chevron rule (`❯ ━━ › N:name ‹ ━━ ❯`) and reaching the bottom edge, deck bands of 8+ rows that divide every leftover row of the terminal behind labeled dot rules naming the band below them, the deck wraps cyclically (`j`/`k` cycle with no blank bands, `g`/`G` jump) behind an always-present `↑ N windows above` indicator, and `Enter` attaching to the hero band's window. Keys live in the new `interactive` keybinding context.
 - Window renaming from the tree: `r` on a window row renames that window in place, with the same overlay as session rename.
 - Built-in `default` and `solarized-gruvbox` color themes, selectable by CLI flag, `TMUX_PEEKER_THEME`, or XDG configuration.

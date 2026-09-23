@@ -234,6 +234,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.interactiveMod.setWindows(msg.windows)
 			return m, m.refreshInteractiveCaptures()
 		}
+		if msg.err != nil {
+			// The session died underneath us (e.g. its final window was
+			// killed); fall back to a session refresh instead of a stale tree.
+			return m, loadSessions
+		}
 		if m.finishPendingDrill(itemWindow, msg.sessionName, 0) {
 			return m, m.refreshCurrentPreview()
 		}
@@ -282,15 +287,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyFilter()
 		return m, nil
 
-	case sessionKilledMsg:
+	case killedMsg:
 		if msg.err != nil {
 			m.err = msg.err
 		}
 		m.mode = modeList
-		if msg.name != "" {
+		if msg.cancelled {
+			return m, nil
+		}
+		switch msg.target.kind {
+		case itemWindow:
+			// Killing a final window destroys the session too, so refresh
+			// the session list alongside the surviving window tree.
+			m.forgetSessionSubtree(msg.target.session)
+			return m, tea.Batch(loadWindows(msg.target.session), loadSessions)
+		case itemPane:
+			// Killing a final pane destroys the window too, so refresh
+			// the window list alongside the surviving pane rows.
+			delete(m.tree.panesCache, paneCacheKey{session: msg.target.session, window: msg.target.windowIndex})
+			return m, tea.Batch(loadPanes(msg.target.session, msg.target.windowIndex), loadWindows(msg.target.session))
+		default:
 			return m, loadSessions
 		}
-		return m, nil
 
 	case moveWindowCancelledMsg:
 		m.mode = modeList
@@ -304,13 +322,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mode = modeList
 		m.focusSession = msg.destination
 		for _, sessionName := range []string{msg.source, msg.destination} {
-			delete(m.tree.windowsCache, sessionName)
-			delete(m.tree.expandedWindow, sessionName)
-			for key := range m.tree.panesCache {
-				if key.session == sessionName {
-					delete(m.tree.panesCache, key)
-				}
-			}
+			m.forgetSessionSubtree(sessionName)
 		}
 		m.tree.setSessionExpanded(msg.destination, true)
 		return m, tea.Batch(
@@ -396,9 +408,9 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.createModel = newCreateModel()
 		return m, m.createModel.nameInput.Focus()
 	case m.keyMap.Matches(contextList, "kill", pressed):
-		if it := m.currentItem(); it != nil && it.kind == itemSession {
+		if it := m.currentItem(); it != nil {
 			m.mode = modeConfirmKill
-			m.confirmKillMod = newConfirmKillModel(it.session.Name)
+			m.confirmKillMod = newConfirmKillModel(killTargetForItem(*it))
 		}
 	case m.keyMap.Matches(contextList, "move_window", pressed):
 		if it := m.currentItem(); it != nil && it.kind == itemWindow {
@@ -590,6 +602,18 @@ func (m Model) updateInteractive(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, m.refreshInteractiveCaptures()
+}
+
+// forgetSessionSubtree drops cached windows, window expansions, and pane
+// caches for a session whose layout changed underneath the picker.
+func (m *Model) forgetSessionSubtree(name string) {
+	delete(m.tree.windowsCache, name)
+	delete(m.tree.expandedWindow, name)
+	for key := range m.tree.panesCache {
+		if key.session == name {
+			delete(m.tree.panesCache, key)
+		}
+	}
 }
 
 // sessionExists reports whether the named session is present in the last

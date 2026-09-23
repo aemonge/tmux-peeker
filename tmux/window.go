@@ -62,6 +62,26 @@ func RenameWindow(sessionName string, windowIndex int, newName string) error {
 	return nil
 }
 
+// KillWindow destroys the window at the given index in the given session.
+// Killing a session's final window also destroys the session.
+func KillWindow(sessionName string, windowIndex int) error {
+	target := fmt.Sprintf("%s:%d", sessionName, windowIndex)
+	if err := runner.Run("tmux", "kill-window", "-t", target); err != nil {
+		return fmt.Errorf("kill window %s: %w", target, err)
+	}
+	return nil
+}
+
+// KillPane destroys the pane at the given index in the given window.
+// Killing a window's final pane also destroys the window.
+func KillPane(sessionName string, windowIndex, paneIndex int) error {
+	target := fmt.Sprintf("%s:%d.%d", sessionName, windowIndex, paneIndex)
+	if err := runner.Run("tmux", "kill-pane", "-t", target); err != nil {
+		return fmt.Errorf("kill pane %s: %w", target, err)
+	}
+	return nil
+}
+
 // ListPanes returns all panes in the given window, sorted by index.
 // windowIndex is the tmux window index (as reported by ListWindows).
 func ListPanes(sessionName string, windowIndex int) ([]Pane, error) {

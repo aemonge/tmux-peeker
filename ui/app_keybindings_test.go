@@ -117,7 +117,7 @@ func TestConfiguredModalBindingsDriveEveryMode(t *testing.T) {
 	t.Run("kill cancel", func(t *testing.T) {
 		m := NewModelWithKeyMap(keyMap)
 		m.mode = modeConfirmKill
-		m.confirmKillMod = newConfirmKillModel("doomed")
+		m.confirmKillMod = newConfirmKillModel(killTarget{kind: itemSession, session: "doomed"})
 		next, cmd := m.Update(runeKey("n"))
 		m = next.(Model)
 		if cmd == nil {
@@ -246,7 +246,7 @@ func TestRenderedHelpAndPromptsUseConfiguredBindings(t *testing.T) {
 	assertContainsAll(t, newCreateModel().View(keyMap), "ctrl+s", "ctrl+x")
 	assertContainsAll(t, newSessionRenameModel("old").View(keyMap), "ctrl+s", "ctrl+x")
 	assertContainsAll(t, newFilterModel("").View(keyMap), "ctrl+s", "ctrl+x")
-	assertContainsAll(t, newConfirmKillModel("old").View(keyMap), "enter", "esc")
+	assertContainsAll(t, newConfirmKillModel(killTarget{kind: itemSession, session: "old"}).View(keyMap), "enter", "esc")
 }
 
 func TestRenderSwitcherHelpIsACompactCard(t *testing.T) {

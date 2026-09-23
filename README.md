@@ -69,7 +69,7 @@ Use `j`/`k` or the arrow keys to move, `Enter` or `Backspace` to attach, and `q`
 | Return to parent | `h`, `←`, `Shift+Tab` |
 | Attach selected target | `Enter`, `Backspace` |
 | Interactive window deck | `i` |
-| Create / rename / kill (session or window) | `n` / `r` / `x` |
+| Create / rename / kill (session, window, or pane) | `n` / `r` / `x` |
 | Move selected window | `m` |
 | Filter / clear filter | `/` / `Esc` |
 | Help | `?` |
