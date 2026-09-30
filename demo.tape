@@ -15,7 +15,7 @@ Output assets/demo.gif
 
 Set FontSize 16
 Set Width 1040
-Set Height 600
+Set Height 720
 Set Padding 12
 Set Theme "Gruvbox Light"
 Set TypingSpeed 35ms
@@ -84,6 +84,20 @@ Tab
 Wait+Screen /tmux pane picker/
 Sleep 900ms
 Down
+Sleep 700ms
+
+# Open the interactive window deck and cycle its bands without attaching.
+Type "i"
+Wait+Screen /windows above/
+Sleep 1s
+Type "j"
+Sleep 800ms
+Type "j"
+Sleep 800ms
+Type "k"
+Sleep 800ms
+Escape
+Wait+Screen /panes \(2\)/
 Sleep 700ms
 
 # Show the opaque contextual help card, then return to the selected pane.
