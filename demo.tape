@@ -19,7 +19,7 @@ Set Width 1040
 Set Height 720
 Set Padding 12
 Set Theme "Gruvbox Light"
-Set TypingSpeed 35ms
+Set TypingSpeed 55ms
 
 # Build into an isolated workspace before changing HOME. A private tmux wrapper
 # keeps fixture sessions and captured content away from the user's live server.
@@ -61,116 +61,116 @@ Enter
 Type "clear"
 Enter
 Show
-Sleep 250ms
+Sleep 400ms
 
 # --- Segment 1: live session previews --------------------------------------
 Type "echo '→ tmux-peeker: peek before you switch'"
 Enter
-Sleep 700ms
+Sleep 1100ms
 Type "tmux-peeker --theme solarized-gruvbox"
 Enter
 Wait+Screen /tmux sessions \(3\)/
-Sleep 1s
+Sleep 1600ms
 Type "q"
-Sleep 600ms
+Sleep 1000ms
 
 # --- Segment 2: filtering ----------------------------------------------------
 Type "echo '→ Filter the session list with /'"
 Enter
-Sleep 700ms
+Sleep 1100ms
 Type "tmux-peeker --theme solarized-gruvbox"
 Enter
 Wait+Screen /tmux sessions \(3\)/
-Sleep 500ms
+Sleep 800ms
 Type "/"
-Sleep 250ms
-Type@70ms "multi"
+Sleep 400ms
+Type@110ms "multi"
 Wait+Screen /> multi/
-Sleep 500ms
+Sleep 800ms
 Enter
 Wait+Screen /tmux sessions \(1\).*\/multi/
-Sleep 500ms
+Sleep 800ms
 Type "q"
-Sleep 600ms
+Sleep 1000ms
 
 # --- Segment 3: hierarchy drill ---------------------------------------------
 Type "echo '→ Tab drills into windows and panes; the live preview follows the cursor'"
 Enter
-Sleep 700ms
+Sleep 1100ms
 Type "tmux-peeker --theme solarized-gruvbox"
 Enter
 Wait+Screen /tmux sessions \(3\)/
-Sleep 400ms
+Sleep 700ms
 Type "/"
-Sleep 250ms
-Type@70ms "multi"
+Sleep 400ms
+Type@110ms "multi"
 Wait+Screen /> multi/
-Sleep 300ms
+Sleep 500ms
 Enter
 Wait+Screen /tmux sessions \(1\).*\/multi/
-Sleep 400ms
+Sleep 700ms
 Tab
 Wait+Screen /tmux window picker/
-Sleep 900ms
+Sleep 1300ms
 Down
-Sleep 700ms
+Sleep 1100ms
 Tab
 Wait+Screen /tmux pane picker/
-Sleep 900ms
+Sleep 1300ms
 Down
-Sleep 700ms
+Sleep 1100ms
 Type "q"
-Sleep 600ms
+Sleep 1000ms
 
 # --- Segment 4: interactive window deck --------------------------------------
 Type "echo '→ Press i to stack a session into live window bands'"
 Enter
-Sleep 700ms
+Sleep 1100ms
 Type "tmux-peeker --theme solarized-gruvbox"
 Enter
 Wait+Screen /tmux sessions \(3\)/
-Sleep 400ms
+Sleep 700ms
 Type "/"
-Sleep 250ms
-Type@70ms "multi"
+Sleep 400ms
+Type@110ms "multi"
 Wait+Screen /> multi/
-Sleep 300ms
+Sleep 500ms
 Enter
 Wait+Screen /tmux sessions \(1\).*\/multi/
-Sleep 500ms
+Sleep 800ms
 # The chevron rules bracket every deck band; the wrap indicator only renders
 # when windows fall off-screen, so anchor on the rule shape instead.
 Type "i"
 Wait+Screen /❯.*›.*❮/
-Sleep 1s
+Sleep 1500ms
 Type "j"
-Sleep 800ms
+Sleep 1300ms
 Type "j"
-Sleep 800ms
+Sleep 1300ms
 Type "k"
-Sleep 800ms
+Sleep 1300ms
 Escape
 Wait+Screen /tmux sessions \(1\)/
-Sleep 600ms
+Sleep 1000ms
 Type "q"
-Sleep 600ms
+Sleep 1000ms
 
 # --- Segment 5: contextual help ---------------------------------------------
 Type "echo '→ Press ? for contextual help; q quits'"
 Enter
-Sleep 700ms
+Sleep 1100ms
 Type "tmux-peeker --theme solarized-gruvbox"
 Enter
 Wait+Screen /tmux sessions \(3\)/
-Sleep 400ms
+Sleep 700ms
 Type "?"
 Wait+Screen /close help/
-Sleep 1500ms
+Sleep 2200ms
 Escape
 Wait+Screen /tmux sessions \(3\)/
-Sleep 500ms
+Sleep 800ms
 Type "q"
-Sleep 400ms
+Sleep 700ms
 
 # Remove only the isolated server, fixtures, binary, HOME, and config.
 Hide
@@ -178,5 +178,5 @@ Type '"$TMUX_PEEKER_REAL_TMUX" -S "$TMUX_PEEKER_DEMO_SOCKET" kill-server >/dev/n
 Enter
 Type 'rm -rf "$TMUX_PEEKER_DEMO_ROOT"'
 Enter
-Type "trap - EXIT INT TERM"
+Type "trap - EXIT INT TERM HUP"
 Enter
