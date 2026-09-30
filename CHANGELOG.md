@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-09-30
 
 ### Added
 - Tmux Plugin Manager install: `tmux-peeker.tmux` keeps a plugin-local binary synchronized with the installed plugin (matching release download, Go build fallback) and binds the popup with the `@tmux-peeker-key` option — no cloning, symlinks, or `tmux.conf` edits on the plugin route.
