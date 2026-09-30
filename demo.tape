@@ -6,7 +6,8 @@
 # Record:
 #   vhs demo.tape
 #
-# If recording is interrupted, clean the isolated server and workspace:
+# If a recording is interrupted, the next run cleans the isolated server and
+# workspace automatically. Manual cleanup is still available:
 #   root="/tmp/tmux-peeker-vhs-${UID}"
 #   tmux -S "$root/tmux.sock" kill-server 2>/dev/null || true
 #   rm -rf "$root"
@@ -29,11 +30,15 @@ Type 'export TMUX_PEEKER_REAL_TMUX=$(command -v tmux)'
 Enter
 Type 'export TMUX_PEEKER_DEMO_ROOT="/tmp/tmux-peeker-vhs-${UID}"'
 Enter
-Type 'mkdir "$TMUX_PEEKER_DEMO_ROOT"'
-Enter
 Type 'export TMUX_PEEKER_DEMO_SOCKET="$TMUX_PEEKER_DEMO_ROOT/tmux.sock"'
 Enter
-Type "trap '\$TMUX_PEEKER_REAL_TMUX -S \$TMUX_PEEKER_DEMO_SOCKET kill-server >/dev/null 2>&1 || true; rm -rf \$TMUX_PEEKER_DEMO_ROOT' EXIT INT TERM"
+# Clear any residue an interrupted recording left behind before claiming the
+# workspace: a stale server on the socket and the directory itself.
+Type '"$TMUX_PEEKER_REAL_TMUX" -S "$TMUX_PEEKER_DEMO_SOCKET" kill-server >/dev/null 2>&1 || true; rm -rf "$TMUX_PEEKER_DEMO_ROOT"'
+Enter
+Type 'mkdir "$TMUX_PEEKER_DEMO_ROOT"'
+Enter
+Type "trap '\$TMUX_PEEKER_REAL_TMUX -S \$TMUX_PEEKER_DEMO_SOCKET kill-server >/dev/null 2>&1 || true; rm -rf \$TMUX_PEEKER_DEMO_ROOT' EXIT INT TERM HUP"
 Enter
 Type 'mkdir -p "$TMUX_PEEKER_DEMO_ROOT/bin" "$TMUX_PEEKER_DEMO_ROOT/home" "$TMUX_PEEKER_DEMO_ROOT/config"'
 Enter
