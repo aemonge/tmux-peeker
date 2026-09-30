@@ -24,9 +24,41 @@ A session name is rarely enough when several terminals look alike. tmux-peeker k
 
 ## Install
 
-### From source
+### Tmux Plugin Manager
 
-Requires Go 1.24.2+ and tmux.
+Requires [TPM](https://github.com/tmux-plugins/tpm). Add to `~/.tmux.conf`:
+
+```tmux
+set -g @plugin 'aemonge/tmux-peeker'
+```
+
+Reload tmux, then press `prefix + I`. TPM clones the plugin; on the next tmux start the plugin script places a binary copy inside its own directory — no cloning by hand, no symlinks — and binds the popup to `prefix + m`.
+
+Choose another key:
+
+```tmux
+set -g @tmux-peeker-key 'p'
+```
+
+On `prefix + U` the plugin re-syncs its binary with the installed version: it downloads the matching GitHub release, or rebuilds from the cloned source when Go is available. oh-my-tmux users put the `@plugin` line in `~/.tmux.conf.local`.
+
+### Standalone CLI
+
+Installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aemonge/tmux-peeker/main/install.sh | bash
+```
+
+The installer downloads a release binary (falling back to `go install`) and offers the `prefix + m` popup binding.
+
+With Go 1.24.2+:
+
+```bash
+go install github.com/aemonge/tmux-peeker/cmd/tmux-peeker@latest
+```
+
+From source:
 
 ```bash
 git clone https://github.com/aemonge/tmux-peeker.git
@@ -36,18 +68,6 @@ make local-install
 ```
 
 `make local-install` installs `tmux-peeker` into `~/.local/bin`. Ensure that directory is on `PATH`.
-
-### Go
-
-```bash
-go install github.com/aemonge/tmux-peeker/cmd/tmux-peeker@latest
-```
-
-### Installer
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/aemonge/tmux-peeker/main/install.sh | bash
-```
 
 The remote commands become available after the GitHub repository is published under the `tmux-peeker` name. No Homebrew tap is currently maintained.
 
@@ -181,7 +201,7 @@ Additional checks used for releases:
 ```bash
 go vet ./...
 go test -race ./...
-shellcheck install.sh
+shellcheck install.sh tmux-peeker.tmux
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for project conventions.

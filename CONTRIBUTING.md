@@ -50,6 +50,7 @@ docs: update keybinding table
 ## Code style
 
 - Run `go vet ./...` and `golangci-lint run` before submitting
+- Shell scripts must pass `shellcheck` (`install.sh`, `tmux-peeker.tmux`)
 - Follow standard Go conventions
 - Keep functions focused and small
 
